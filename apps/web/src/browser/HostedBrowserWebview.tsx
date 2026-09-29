@@ -22,6 +22,7 @@ import { acquireDesktopTab, type AcquiredDesktopTab } from "./desktopTabLifetime
 import { resolveHostedBrowserWebviewWrapperStyle } from "./hostedBrowserWebviewStyle";
 import { usePreviewWebviewConfig } from "./previewWebviewConfigState";
 import { useBrowserViewportResize } from "./useBrowserViewportResize";
+import { usePreviewPageScale } from "./usePreviewPageScale";
 import {
   INITIAL_WEBVIEW_CRASH_RECOVERY_STATE,
   planWebviewCrashRecovery,
@@ -67,6 +68,9 @@ export function HostedBrowserWebview(props: {
     zoomFactor,
     profileId,
   } = props;
+  // Lay the guest out with the page-to-panel scale, not the tab zoom alone, so
+  // it gets the exact viewport requested even when the app window is zoomed.
+  const pageScale = usePreviewPageScale(zoomFactor);
   const clientSettingsHydrated = useClientSettingsHydrated();
   const config = usePreviewWebviewConfig(threadRef.environmentId, profileId);
   const [initialSrc] = useState(() => initialUrl ?? "about:blank");
@@ -181,7 +185,7 @@ export function HostedBrowserWebview(props: {
 
   const active = presentation.visible && presentation.rect !== null;
   const lastRect = presentation.rect;
-  const normalizedZoomFactor = Number.isFinite(zoomFactor) && zoomFactor > 0 ? zoomFactor : 1;
+  const normalizedZoomFactor = Number.isFinite(pageScale) && pageScale > 0 ? pageScale : 1;
   const viewportWidth = viewport._tag === "fill" ? null : viewport.width;
   const viewportHeight = viewport._tag === "fill" ? null : viewport.height;
   const viewportAspectRatio =
@@ -219,7 +223,7 @@ export function HostedBrowserWebview(props: {
   } = useBrowserViewportResize({
     tabId: runtimeTabId,
     viewport,
-    zoomFactor,
+    zoomFactor: pageScale,
     containerSize,
     deviceToolbarVisible,
     aspectRatio: lockedAspectRatio,

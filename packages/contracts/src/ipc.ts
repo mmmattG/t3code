@@ -1127,6 +1127,8 @@ export interface DesktopBridge {
   getPathForFile?: (file: File) => string;
   /** The desktop client's OS platform, read from Electron's preload process. */
   getClientPlatform?: () => string;
+  /** The app window's own zoom factor (View > Zoom), read from Electron's webFrame. */
+  getZoomFactor?: () => number;
   setNotificationBadge?: (badge: { count: number; image: string | null }) => Promise<void>;
   onNotificationBadgeClear?: (listener: () => void) => () => void;
   onTrackpadScrollEnd?: (listener: () => void) => () => void;

@@ -19,6 +19,7 @@ import {
 import { useBrowserSurfaceStore } from "~/browser/browserSurfaceStore";
 import type { BrowserViewportResizeDirection } from "~/browser/browserViewportLayout";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
+import { usePreviewPageScale } from "~/browser/usePreviewPageScale";
 import { Button } from "~/components/ui/button";
 import { toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -163,10 +164,11 @@ function BrowserMiniPlayer({
   const fittedSourceContent = useBrowserSurfaceStore(
     (state) => state.byTabId[runtimeTabId]?.fittedSourceContent ?? null,
   );
+  const pageScale = usePreviewPageScale(desktopOverlay?.zoomFactor ?? 1);
   const sourceSize = resolvePreviewMiniPlayerSourceSize(
     snapshot?.viewport ?? FILL_PREVIEW_VIEWPORT,
     fittedSourceContent,
-    desktopOverlay?.zoomFactor ?? 1,
+    pageScale,
   );
 
   const openInPanel = () => {

@@ -53,6 +53,7 @@ import {
 } from "~/browser/browserViewportActions";
 import { browserResponsiveViewportForToggle, useBrowserDefaults } from "~/browser/browserDefaults";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
+import { usePreviewPageScale } from "~/browser/usePreviewPageScale";
 import { BrowserSettingsReadError } from "~/browser/openFileInPreview";
 import { PreviewUnreachable } from "./PreviewUnreachable";
 import { revealInFileExplorerLabel } from "./fileExplorerLabel";
@@ -151,6 +152,7 @@ export function PreviewView({
       : null;
   const snapshot = tabId ? (previewState.sessions[tabId] ?? null) : null;
   const desktopOverlay = tabId ? (previewState.desktopByTabId[tabId] ?? null) : null;
+  const pageScale = usePreviewPageScale(desktopOverlay?.zoomFactor ?? 1);
   const navStatus = snapshot?.navStatus ?? { _tag: "Idle" as const };
   const url = navStatus._tag === "Idle" ? "" : navStatus.url;
   const loading = desktopOverlay?.loading ?? navStatus._tag === "Loading";
@@ -290,7 +292,7 @@ export function PreviewView({
       browserResponsiveViewportForToggle({
         defaults: browserDefaults,
         panelRect,
-        zoomFactor: desktopOverlay?.zoomFactor,
+        zoomFactor: pageScale,
       }),
     ).catch(() => undefined);
   };
@@ -803,11 +805,7 @@ export function PreviewView({
         !showEmptyState &&
         !isUnreachable &&
         !activeRecordingTabIds.has(runtimeTabId) ? (
-          <AgentBrowserCursor
-            tabId={runtimeTabId}
-            zoomFactor={desktopOverlay.zoomFactor}
-            controller={controller}
-          />
+          <AgentBrowserCursor tabId={runtimeTabId} zoomFactor={pageScale} controller={controller} />
         ) : null}
         {navStatus._tag === "LoadFailed" ? (
           <div className="absolute inset-0 z-10 bg-background">
