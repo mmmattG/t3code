@@ -110,6 +110,7 @@ import {
   threadJumpIndexFromCommand,
   threadTraversalDirectionFromCommand,
 } from "../keybindings";
+import { isEffortPickerOpen } from "../effortPickerVisibility";
 import { isModelPickerOpen } from "../modelPickerVisibility";
 import { useShortcutModifierState } from "../shortcutModifierState";
 import { ensureLocalApi, readLocalApi } from "../localApi";
@@ -3318,6 +3319,7 @@ export default function LegacySidebar() {
       terminalFocus: isTerminalFocused(),
       terminalOpen: routeTerminalOpen,
       modelPickerOpen: isModelPickerOpen(),
+      effortPickerOpen: isEffortPickerOpen(),
     }),
     [routeTerminalOpen],
   );
@@ -3523,6 +3525,7 @@ export default function LegacySidebar() {
     terminalFocus: terminalFocused,
     terminalOpen: routeTerminalOpen,
     modelPickerOpen: isModelPickerOpen(),
+    effortPickerOpen: isEffortPickerOpen(),
   };
   const threadJumpLabelByKey = useMemo(
     () =>
