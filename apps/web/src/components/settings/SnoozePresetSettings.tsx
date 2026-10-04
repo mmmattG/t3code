@@ -1,7 +1,6 @@
 import { PlusIcon, XIcon } from "lucide-react";
 import { useId, useState } from "react";
 import {
-  MAX_SNOOZE_PRESET_AMOUNT,
   MAX_SNOOZE_PRESETS,
   type SnoozePresetRule,
   type SnoozePresetUnit,
@@ -183,10 +182,12 @@ function SnoozePresetForm(props: {
       </ToggleGroup>
       {kind === "delay" ? (
         <div className="grid grid-cols-2 gap-3">
+          {/* No clamping: a silently corrected amount would be validated as a
+              different preset than the one on screen. parseSnoozePresetDraft
+              explains out-of-range input instead. */}
           <NumberField
             id={`${id}-amount`}
-            min={1}
-            max={MAX_SNOOZE_PRESET_AMOUNT}
+            min={0}
             step={1}
             value={amount === "" ? null : Number(amount)}
             onValueChange={(value) => {
