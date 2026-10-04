@@ -68,6 +68,16 @@ describe("resolveSnoozePresets", () => {
     expect(twelveHour.find((preset) => preset.id === "evening")!.whenLabel).toMatch(/PM/i);
     expect(twentyFourHour.find((preset) => preset.id === "evening")!.whenLabel).toBe("18:00");
   });
+
+  it("lists saved presets after the built-ins in the selected clock format", () => {
+    const presets = resolveSnoozePresets(localDate(2026, 4, 8, 10), "24-hour", [
+      { kind: "weekday", weekday: 5, time: "16:30" },
+    ]);
+    const friday = presets.at(-1)!;
+    expect(friday.id).toBe("saved:weekday:5:16:30");
+    expect(friday.label).toBe("Friday");
+    expect(friday.whenLabel).toMatch(/16:30$/);
+  });
 });
 
 describe("snoozeWakeDescription", () => {

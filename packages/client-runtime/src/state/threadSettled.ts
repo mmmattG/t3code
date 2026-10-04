@@ -1,5 +1,12 @@
 // @effect-diagnostics globalDate:off -- UI snooze presets use local calendar boundaries and Intl labels.
+import {
+  MAX_SNOOZE_PRESET_AMOUNT,
+  MAX_SNOOZE_PRESETS,
+  SnoozePresetRule,
+  type SnoozePresetUnit,
+} from "@t3tools/contracts/settings";
 import * as DateTime from "effect/DateTime";
+import * as Schema from "effect/Schema";
 
 interface SettlementRunLike {
   readonly turnId?: unknown;
@@ -213,21 +220,66 @@ export function threadWokeAt(
 const HOUR_MS = 60 * 60 * 1_000;
 const EVENING_HOUR = 18;
 const MORNING_HOUR = 9;
+const SNOOZE_UNIT_MS: Record<SnoozePresetUnit, number> = {
+  minutes: 60_000,
+  hours: HOUR_MS,
+  days: DAY_MS,
+};
+const WEEKDAY_NAMES = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+] as const;
+// The schema bounds weekdays to 0-6; the fallback only satisfies the index type.
+function weekdayName(weekday: number): string {
+  return WEEKDAY_NAMES[weekday] ?? "";
+}
+/** Weekday choices for preset forms, Monday first. */
+export const SNOOZE_PRESET_WEEKDAYS = ([1, 2, 3, 4, 5, 6, 0] as const).map((weekday) => ({
+  weekday,
+  label: WEEKDAY_NAMES[weekday],
+}));
 
-export type SnoozePresetId = "hour" | "three-hours" | "evening" | "tomorrow" | "next-week";
+type BuiltInSnoozePresetId = "hour" | "three-hours" | "evening" | "tomorrow" | "next-week";
+/** A built-in choice, or `saved:<rule key>` for a preset saved in settings. */
+export type SnoozePresetId = BuiltInSnoozePresetId | `saved:${string}`;
 
 export interface SnoozePreset {
   readonly id: SnoozePresetId;
   readonly label: string;
-  /** Menu-row time column. Complements the label instead of repeating it:
-      "Tomorrow" pairs with "9:00 AM", not "tomorrow 9:00 AM". */
+  /** Menu-row time column. Built-ins complement the label instead of
+      repeating it: "Tomorrow" pairs with "9:00 AM", not "tomorrow 9:00 AM".
+      Saved presets name a rule, so their column carries the day. */
   readonly whenLabel: string;
   /** ISO wake time. */
   readonly snoozedUntil: string;
 }
 
+export interface SnoozePresetOptions {
+  /** Presets saved in settings, listed after the built-in choices. */
+  readonly saved?: ReadonlyArray<SnoozePresetRule>;
+  /** Formats a time of day. Web passes the user's clock preference. */
+  readonly formatTime?: (date: Date) => string;
+}
+
+// The built-in choices that are plain rules. Saving a rule with one of these
+// keys would only add a duplicate, so settings refuse it.
+const BUILT_IN_SNOOZE_RULES = {
+  hour: { kind: "delay", amount: 1, unit: "hours" },
+  "three-hours": { kind: "delay", amount: 3, unit: "hours" },
+  "next-week": { kind: "weekday", weekday: 1, time: "09:00" },
+} as const satisfies Partial<Record<BuiltInSnoozePresetId, SnoozePresetRule>>;
+
 function snoozeTimeOfDayLabel(date: Date): string {
   return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function snoozeWeekdayLabel(date: Date): string {
+  return date.toLocaleDateString(undefined, { weekday: "short" });
 }
 
 function snoozeAtHour(base: Date, hour: number): Date {
@@ -245,61 +297,171 @@ function addSnoozeDays(base: Date, days: number): Date {
   return next;
 }
 
+function parseSnoozePresetTime(time: string): { readonly hours: number; readonly minutes: number } {
+  const [hours = 0, minutes = 0] = time.split(":").map(Number);
+  return { hours, minutes };
+}
+
+/**
+ * Wake time for a preset rule, in the device's local time zone. A delay is
+ * elapsed time, so a day is 24 hours even across a DST change, matching
+ * Custom… durations. A weekday is the next such day after today at that
+ * wall-clock time; a time skipped by a DST change rolls forward to the next
+ * valid one, and a repeated time resolves to its first occurrence.
+ */
+export function resolveSnoozePresetRule(rule: SnoozePresetRule, now: Date): Date {
+  if (rule.kind === "delay") {
+    return DateTime.toDate(
+      DateTime.makeUnsafe(now.getTime() + rule.amount * SNOOZE_UNIT_MS[rule.unit]),
+    );
+  }
+  // Never today: on a Friday, "Friday" means next week's, like "Next week" on
+  // a Monday. Today's later hours belong to the delay presets.
+  const daysAhead = (rule.weekday - now.getDay() + 7) % 7 || 7;
+  const wake = addSnoozeDays(now, daysAhead);
+  const { hours, minutes } = parseSnoozePresetTime(rule.time);
+  wake.setHours(hours, minutes, 0, 0);
+  return wake;
+}
+
+/** Rules with the same key always resolve to the same wake time. */
+export function snoozePresetRuleKey(rule: SnoozePresetRule): string {
+  return rule.kind === "delay"
+    ? `delay:${(rule.amount * SNOOZE_UNIT_MS[rule.unit]) / 60_000}m`
+    : `weekday:${rule.weekday}:${rule.time}`;
+}
+
+function delayLabel(rule: Extract<SnoozePresetRule, { kind: "delay" }>): string {
+  const unit = rule.amount === 1 ? rule.unit.slice(0, -1) : rule.unit;
+  return `In ${rule.amount} ${unit}`;
+}
+
+/** How settings list a saved rule: "In 3 days", "Friday at 9:00 AM". */
+export function describeSnoozePresetRule(
+  rule: SnoozePresetRule,
+  formatTime: (date: Date) => string = snoozeTimeOfDayLabel,
+): string {
+  if (rule.kind === "delay") return delayLabel(rule);
+  const { hours, minutes } = parseSnoozePresetTime(rule.time);
+  // Any date works: only the time of day is formatted.
+  const time = formatTime(new Date(2000, 0, 1, hours, minutes));
+  return `${weekdayName(rule.weekday)} at ${time}`;
+}
+
+// Saved presets name a rule rather than a day, so their time column carries
+// the day: "3:45 PM" today, "Fri 9:00 AM" this week, "Oct 16, 9:00 AM" when
+// a weekday preset lands a full week out.
+function savedPresetWhenLabel(wake: Date, now: Date, formatTime: (date: Date) => string): string {
+  const time = formatTime(wake);
+  const dayDelta = Math.round(
+    (snoozeAtHour(wake, 0).getTime() - snoozeAtHour(now, 0).getTime()) / DAY_MS,
+  );
+  if (dayDelta === 0) return time;
+  if (dayDelta < 7) return `${snoozeWeekdayLabel(wake)} ${time}`;
+  return `${wake.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${time}`;
+}
+
 /**
  * Shared "snooze until" choices for every client. "This evening" only
  * appears while it is meaningfully before evening; after that the calendar
- * choices start at "Tomorrow". Calendar presets that land on the same
- * instant collapse: on Sundays "Tomorrow" and "Next week" are both Monday
- * morning, so only "Tomorrow" is offered.
+ * choices start at "Tomorrow". Saved presets follow the built-ins, soonest
+ * first. A choice that lands on the same instant as an earlier one collapses
+ * into it: on Sundays "Next week" is Monday morning just like "Tomorrow", and
+ * a saved "Monday at 9:00 AM" is always one of the two.
  */
-export function resolveSnoozePresets(now: Date): ReadonlyArray<SnoozePreset> {
-  const inAnHour = DateTime.toDate(DateTime.makeUnsafe(now.getTime() + HOUR_MS));
-  const inThreeHours = DateTime.toDate(DateTime.makeUnsafe(now.getTime() + 3 * HOUR_MS));
-  const presets: SnoozePreset[] = [
-    {
-      id: "hour",
-      label: "In 1 hour",
-      whenLabel: snoozeTimeOfDayLabel(inAnHour),
-      snoozedUntil: inAnHour.toISOString(),
-    },
-    {
-      id: "three-hours",
-      label: "In 3 hours",
-      whenLabel: snoozeTimeOfDayLabel(inThreeHours),
-      snoozedUntil: inThreeHours.toISOString(),
-    },
-  ];
+export function resolveSnoozePresets(
+  now: Date,
+  options: SnoozePresetOptions = {},
+): ReadonlyArray<SnoozePreset> {
+  const formatTime = options.formatTime ?? snoozeTimeOfDayLabel;
+  const preset = (
+    id: SnoozePresetId,
+    label: string,
+    wake: Date,
+    whenLabel = formatTime(wake),
+  ): SnoozePreset => ({ id, label, whenLabel, snoozedUntil: wake.toISOString() });
 
+  const presets: SnoozePreset[] = [
+    preset("hour", "In 1 hour", resolveSnoozePresetRule(BUILT_IN_SNOOZE_RULES.hour, now)),
+    preset(
+      "three-hours",
+      "In 3 hours",
+      resolveSnoozePresetRule(BUILT_IN_SNOOZE_RULES["three-hours"], now),
+    ),
+  ];
   const evening = snoozeAtHour(now, EVENING_HOUR);
   if (evening.getTime() - now.getTime() > HOUR_MS) {
-    presets.push({
-      id: "evening",
-      label: "This evening",
-      whenLabel: snoozeTimeOfDayLabel(evening),
-      snoozedUntil: evening.toISOString(),
-    });
+    presets.push(preset("evening", "This evening", evening));
+  }
+  presets.push(preset("tomorrow", "Tomorrow", snoozeAtHour(addSnoozeDays(now, 1), MORNING_HOUR)));
+  const nextWeek = resolveSnoozePresetRule(BUILT_IN_SNOOZE_RULES["next-week"], now);
+  presets.push(
+    preset(
+      "next-week",
+      "Next week",
+      nextWeek,
+      `${snoozeWeekdayLabel(nextWeek)} ${formatTime(nextWeek)}`,
+    ),
+  );
+
+  const saved = (options.saved ?? [])
+    .map((rule) => ({ rule, wake: resolveSnoozePresetRule(rule, now) }))
+    .sort((left, right) => left.wake.getTime() - right.wake.getTime());
+  for (const { rule, wake } of saved) {
+    presets.push(
+      preset(
+        `saved:${snoozePresetRuleKey(rule)}`,
+        rule.kind === "delay" ? delayLabel(rule) : weekdayName(rule.weekday),
+        wake,
+        savedPresetWhenLabel(wake, now, formatTime),
+      ),
+    );
   }
 
-  const tomorrow = snoozeAtHour(addSnoozeDays(now, 1), MORNING_HOUR);
-  presets.push({
-    id: "tomorrow",
-    label: "Tomorrow",
-    whenLabel: snoozeTimeOfDayLabel(tomorrow),
-    snoozedUntil: tomorrow.toISOString(),
+  const seenWakeTimes = new Set<string>();
+  return presets.filter((candidate) => {
+    if (seenWakeTimes.has(candidate.snoozedUntil)) return false;
+    seenWakeTimes.add(candidate.snoozedUntil);
+    return true;
   });
+}
 
-  const daysUntilMonday = (1 - now.getDay() + 7) % 7 || 7;
-  const nextWeek = snoozeAtHour(addSnoozeDays(now, daysUntilMonday), MORNING_HOUR);
-  if (nextWeek.getTime() !== tomorrow.getTime()) {
-    presets.push({
-      id: "next-week",
-      label: "Next week",
-      whenLabel: `${nextWeek.toLocaleDateString(undefined, { weekday: "short" })} ${snoozeTimeOfDayLabel(nextWeek)}`,
-      snoozedUntil: nextWeek.toISOString(),
-    });
+/** Form input for a new saved preset, before validation. */
+export type SnoozePresetDraft =
+  | { readonly kind: "delay"; readonly amount: string; readonly unit: SnoozePresetUnit }
+  | { readonly kind: "weekday"; readonly weekday: number; readonly time: string };
+
+const isSnoozePresetRule = Schema.is(SnoozePresetRule);
+
+/**
+ * Validates a new saved preset against the settings schema and the presets
+ * already saved. A rule that always duplicates a built-in or saved choice is
+ * refused here; ones that only coincide on some days collapse in the menu.
+ */
+export function parseSnoozePresetDraft(
+  draft: SnoozePresetDraft,
+  saved: ReadonlyArray<SnoozePresetRule>,
+): { readonly rule: SnoozePresetRule } | { readonly error: string } {
+  if (saved.length >= MAX_SNOOZE_PRESETS) {
+    return { error: `You can save up to ${MAX_SNOOZE_PRESETS} presets. Remove one first.` };
   }
-
-  return presets;
+  const candidate = draft.kind === "delay" ? { ...draft, amount: Number(draft.amount) } : draft;
+  if (!isSnoozePresetRule(candidate)) {
+    return {
+      error:
+        draft.kind === "delay"
+          ? `Enter a whole number from 1 to ${MAX_SNOOZE_PRESET_AMOUNT}.`
+          : "Choose a day and a time.",
+    };
+  }
+  const key = snoozePresetRuleKey(candidate);
+  if (Object.values(BUILT_IN_SNOOZE_RULES).some((rule) => snoozePresetRuleKey(rule) === key)) {
+    return { error: "That is already a built-in choice." };
+  }
+  if (saved.some((rule) => snoozePresetRuleKey(rule) === key)) {
+    return { error: "That preset is already saved." };
+  }
+  return { rule: candidate };
 }
 
 /**
@@ -323,7 +485,7 @@ export type CustomSnoozeInput =
   | {
       readonly mode: "duration";
       readonly amount: string;
-      readonly unit: "minutes" | "hours" | "days";
+      readonly unit: SnoozePresetUnit;
     };
 
 /** Resolve local calendar input or elapsed time, rejecting past and invalid dates. */
@@ -332,8 +494,7 @@ export function resolveCustomSnooze(input: CustomSnoozeInput, now: Date): string
   if (input.mode === "duration") {
     const amount = Number(input.amount);
     if (!Number.isFinite(amount) || amount <= 0) return null;
-    const unitMs = { minutes: 60_000, hours: HOUR_MS, days: 24 * HOUR_MS }[input.unit];
-    wake = new Date(now.getTime() + amount * unitMs);
+    wake = new Date(now.getTime() + amount * SNOOZE_UNIT_MS[input.unit]);
   } else {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || !/^\d{2}:\d{2}$/.test(input.time)) return null;
     wake = new Date(`${input.date}T${input.time}:00`);

@@ -23,7 +23,7 @@ import {
   sortPinnedThreadsByOrderKey,
   sortSettledThreads,
 } from "@t3tools/client-runtime/state/thread-sort";
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, SnoozePresetRule } from "@t3tools/contracts";
 
 import type { ThreadListProvider } from "../../state/thread-list-environments";
 import type { ThreadMoveAvailability } from "./threadOrder";
@@ -89,6 +89,7 @@ export type ThreadListV2SwipeAction = "archive" | "settle" | "unsettle" | "snooz
 export function resolveThreadListV2SnoozeMenuSelection(input: {
   readonly event: string;
   readonly displayedPresets: ReadonlyArray<SnoozePreset>;
+  readonly savedPresets: ReadonlyArray<SnoozePresetRule>;
   readonly now: Date;
 }):
   | { readonly _tag: "selected"; readonly preset: SnoozePreset }
@@ -96,7 +97,7 @@ export function resolveThreadListV2SnoozeMenuSelection(input: {
   | { readonly _tag: "not-snooze" } {
   if (!input.event.startsWith("snooze:")) return { _tag: "not-snooze" };
 
-  const currentPreset = resolveSnoozePresets(input.now).find(
+  const currentPreset = resolveSnoozePresets(input.now, { saved: input.savedPresets }).find(
     (candidate) => input.event === `snooze:${candidate.id}`,
   );
   if (currentPreset) return { _tag: "selected", preset: currentPreset };

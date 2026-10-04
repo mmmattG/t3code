@@ -17,7 +17,7 @@ import type {
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
-import type { EnvironmentMachineKind } from "@t3tools/contracts";
+import type { EnvironmentMachineKind, SnoozePresetRule } from "@t3tools/contracts";
 import { canSnooze, resolveSnoozePresets } from "@t3tools/client-runtime/state/thread-settled";
 import type { MenuAction } from "@react-native-menu/menu";
 import { memo, useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
@@ -471,6 +471,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       row's menu offers snooze presets, so those menus refresh while mounted
       without invalidating every other row. */
   readonly snoozePresetMinute: string;
+  /** This device's saved presets, listed after the built-in snooze choices. */
+  readonly savedSnoozePresets: ReadonlyArray<SnoozePresetRule>;
   readonly project: EnvironmentProject | null;
   readonly projectTitle?: string;
   /** Keep the environment's provider array stable across unrelated list updates. */
@@ -652,8 +654,11 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     snoozed: snoozedRow,
   });
   const snoozePresets = useMemo(
-    () => (swipeActions.secondary === "snooze" ? resolveSnoozePresets(new Date()) : ([] as const)),
-    [props.snoozePresetMinute, swipeActions.secondary],
+    () =>
+      swipeActions.secondary === "snooze"
+        ? resolveSnoozePresets(new Date(), { saved: props.savedSnoozePresets })
+        : ([] as const),
+    [props.savedSnoozePresets, props.snoozePresetMinute, swipeActions.secondary],
   );
   const snoozePresetActions = useMemo<MenuAction[]>(
     () => [
@@ -827,6 +832,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       const snoozeSelection = resolveThreadListV2SnoozeMenuSelection({
         event: nativeEvent.event,
         displayedPresets: snoozePresets,
+        savedPresets: props.savedSnoozePresets,
         now: new Date(),
       });
       if (snoozeSelection._tag === "selected") {
@@ -851,6 +857,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       handleUnpin,
       handleUnsettle,
       handleUnsnooze,
+      props.savedSnoozePresets,
       setCustomSnoozeOpen,
       snoozePresets,
     ],

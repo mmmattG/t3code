@@ -78,6 +78,20 @@ describe("restoring V2 settings", () => {
     expect(state.update.mock.calls[0]?.[0][key]).toBe(DEFAULT_UNIFIED_SETTINGS[key]);
   });
 
+  it("clears saved snooze presets", async () => {
+    state.settings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      snoozePresets: [{ kind: "delay", amount: 3, unit: "days" }],
+    };
+    hooks.beginRender();
+    const restore = useSettingsRestore();
+
+    expect(restore.changedSettingLabels).toEqual(["Snooze presets"]);
+    await restore.restoreDefaults();
+
+    expect(state.update.mock.calls[0]?.[0].snoozePresets).toEqual([]);
+  });
+
   it("does not reset settings after cancellation", async () => {
     state.settings = { ...DEFAULT_UNIFIED_SETTINGS, autoResumeLimitedThreads: true };
     state.confirm.mockResolvedValue(false);

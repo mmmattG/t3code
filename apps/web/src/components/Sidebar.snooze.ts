@@ -1,4 +1,4 @@
-import type { TimestampFormat } from "@t3tools/contracts/settings";
+import type { SnoozePresetRule, TimestampFormat } from "@t3tools/contracts/settings";
 import {
   resolveSnoozePresets as resolveSharedSnoozePresets,
   snoozeWakeLabel,
@@ -15,21 +15,15 @@ function timeOfDayLabel(date: Date, timestampFormat: TimestampFormat): string {
   return formatShortTimestamp(date.toISOString(), timestampFormat);
 }
 
+/** Built-in and saved Snooze menu choices, with times in the user's clock format. */
 export function resolveSnoozePresets(
   now: Date,
   timestampFormat: TimestampFormat,
+  saved: ReadonlyArray<SnoozePresetRule> = [],
 ): ReadonlyArray<SnoozePreset> {
-  return resolveSharedSnoozePresets(now).map((preset) => {
-    const wake = parseTimestampDate(preset.snoozedUntil);
-    if (wake === null) return preset;
-    const time = timeOfDayLabel(wake, timestampFormat);
-    return {
-      ...preset,
-      whenLabel:
-        preset.id === "next-week"
-          ? `${wake.toLocaleDateString(undefined, { weekday: "short" })} ${time}`
-          : time,
-    };
+  return resolveSharedSnoozePresets(now, {
+    saved,
+    formatTime: (date) => timeOfDayLabel(date, timestampFormat),
   });
 }
 

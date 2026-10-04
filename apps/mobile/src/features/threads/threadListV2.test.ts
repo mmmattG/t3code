@@ -71,6 +71,7 @@ describe("resolveThreadListV2SnoozeMenuSelection", () => {
     const selection = resolveThreadListV2SnoozeMenuSelection({
       event: "snooze:evening",
       displayedPresets,
+      savedPresets: [],
       now: selectedAt,
     });
 
@@ -87,6 +88,7 @@ describe("resolveThreadListV2SnoozeMenuSelection", () => {
       resolveThreadListV2SnoozeMenuSelection({
         event: "snooze:evening",
         displayedPresets,
+        savedPresets: [],
         now: new Date(2026, 4, 8, 18, 0, 1),
       }),
     ).toEqual({ _tag: "expired" });
@@ -98,6 +100,7 @@ describe("resolveThreadListV2SnoozeMenuSelection", () => {
     const selection = resolveThreadListV2SnoozeMenuSelection({
       event: "snooze:hour",
       displayedPresets,
+      savedPresets: [],
       now: selectedAt,
     });
 
@@ -105,6 +108,27 @@ describe("resolveThreadListV2SnoozeMenuSelection", () => {
     if (selection._tag === "selected") {
       expect(selection.preset.snoozedUntil).toBe(
         new Date(selectedAt.getTime() + 60 * 60 * 1_000).toISOString(),
+      );
+    }
+  });
+
+  it("recomputes a saved preset from the tap time", () => {
+    const savedPresets = [{ kind: "delay", amount: 3, unit: "days" }] as const;
+    const displayedPresets = resolveSnoozePresets(new Date(2026, 4, 8, 10), {
+      saved: savedPresets,
+    });
+    const selectedAt = new Date(2026, 4, 8, 10, 30);
+    const selection = resolveThreadListV2SnoozeMenuSelection({
+      event: "snooze:saved:delay:4320m",
+      displayedPresets,
+      savedPresets,
+      now: selectedAt,
+    });
+
+    expect(selection._tag).toBe("selected");
+    if (selection._tag === "selected") {
+      expect(selection.preset.snoozedUntil).toBe(
+        new Date(selectedAt.getTime() + 3 * 24 * 60 * 60 * 1_000).toISOString(),
       );
     }
   });

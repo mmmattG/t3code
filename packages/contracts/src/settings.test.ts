@@ -681,6 +681,39 @@ describe("ClientSettings follow-up behavior", () => {
   });
 });
 
+describe("ClientSettings snooze presets", () => {
+  it("defaults to no saved presets and round-trips both kinds", () => {
+    expect(decodeClientSettings({}).snoozePresets).toEqual([]);
+    const snoozePresets = [
+      { kind: "delay", amount: 3, unit: "days" },
+      { kind: "weekday", weekday: 1, time: "09:00" },
+    ];
+    expect(decodeClientSettings({ snoozePresets }).snoozePresets).toEqual(snoozePresets);
+    expect(decodeClientSettingsPatch({ snoozePresets }).snoozePresets).toEqual(snoozePresets);
+  });
+
+  it("drops entries this build cannot read instead of failing the settings", () => {
+    const decoded = decodeClientSettings({
+      timestampFormat: "24-hour",
+      snoozePresets: [
+        { kind: "delay", amount: 3, unit: "days" },
+        { kind: "later-today", time: "16:00" },
+        { kind: "weekday", weekday: 7, time: "09:00" },
+        { kind: "weekday", weekday: 5, time: "9:00" },
+        { kind: "delay", amount: 1.5, unit: "hours" },
+      ],
+    });
+    expect(decoded.timestampFormat).toBe("24-hour");
+    expect(decoded.snoozePresets).toEqual([{ kind: "delay", amount: 3, unit: "days" }]);
+  });
+
+  it("rejects invalid presets in a patch", () => {
+    expect(() =>
+      decodeClientSettingsPatch({ snoozePresets: [{ kind: "delay", amount: 0, unit: "days" }] }),
+    ).toThrow();
+  });
+});
+
 describe("ClientSettings composer collapse", () => {
   it("collapses on scroll by default and accepts opting out", () => {
     expect(decodeClientSettings({}).composerCollapseOnScroll).toBe(true);

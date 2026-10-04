@@ -223,3 +223,11 @@ Choose **Snooze → Custom…** from a thread's menu to pick a date and time in 
 local time zone, or a duration in minutes, hours, or days. Durations start when
 you confirm; one day means 24 hours. On web and desktop, you can also snooze
 several selected threads together. Choose **Wake thread** to bring a thread back early.
+
+To keep a choice you use often in the Snooze menu, add a snooze preset in
+**Settings → General** on web and desktop, or **Settings → Thread behavior** on
+mobile. A preset is either a delay, such as 3 days, or a weekday at a time, such
+as Friday at 9:00 AM. Delays work like Custom… durations. A weekday preset means
+the next one after today, so on a Friday, Friday means next week. Presets follow
+the built-in choices, use the device's time zone, and are saved on each device
+separately. A choice that lands at the same time as another appears once.

@@ -287,6 +287,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["sort projects sidebar manual created recent"],
   },
   {
+    id: "snooze-presets",
+    title: "Snooze presets",
+    to: "/settings/general",
+    searchTerms: ["snooze menu choices quick later delay days weekday custom remind"],
+  },
+  {
     id: "snooze-limited-threads",
     title: "Snooze limited threads",
     to: "/settings/general",
