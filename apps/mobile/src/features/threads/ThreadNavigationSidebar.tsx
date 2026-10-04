@@ -30,9 +30,9 @@ import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
 import { useProjects, useNavigationThreadShells } from "../../state/entities";
 import { useThreadSearch } from "../../state/queries";
 import { useThreadListV2ShelfPreferences } from "./use-thread-list-v2-shelf-preferences";
-import { useSavedSnoozePresets } from "./use-saved-snooze-presets";
 import { usePendingThreadOrder } from "../../state/thread-order";
 import { threadListEnvironmentsAtom } from "../../state/server";
+import { NO_SNOOZE_PRESETS } from "../../state/thread-list-environments";
 import { usePendingNewTasks } from "../../state/use-pending-new-tasks";
 import { useQueuedThreadKeys } from "../../state/use-thread-outbox";
 import { useWorkspaceState } from "../../state/workspace";
@@ -300,7 +300,6 @@ function ThreadNavigationSidebarPane(
     toggleSnoozedShelf,
     toggleWorkingShelf,
   } = useThreadListV2ShelfPreferences();
-  const savedSnoozePresets = useSavedSnoozePresets();
   // The queued-start and snooze helpers need a clock while the pane stays open.
   const [nowMinute, setNowMinute] = useState(() => new Date().toISOString().slice(0, 16));
   // Snooze wake times are second-precise; a counter bumped exactly at the
@@ -326,6 +325,7 @@ function ThreadNavigationSidebarPane(
     pinReorderEnvironmentIds,
     activeReorderEnvironmentIds,
     titleRegenerationEnvironmentIds,
+    snoozePresetsByEnvironmentId,
   } = listEnvironments;
   const resolveProviderInstance = useThreadRowProviderInstanceResolver(providersByEnvironmentId);
   const pendingOrder = usePendingThreadOrder(nowMinute, snoozeWakeTick);
@@ -699,7 +699,9 @@ function ThreadNavigationSidebarPane(
               snoozed={item.item.snoozed}
               pinned={item.item.pinned}
               snoozePresetMinute={item.snoozePresetMinute ?? ""}
-              savedSnoozePresets={savedSnoozePresets}
+              savedSnoozePresets={
+                snoozePresetsByEnvironmentId.get(thread.environmentId) ?? NO_SNOOZE_PRESETS
+              }
               snoozeWakeLabelText={item.snoozeWakeLabelText}
               timeLabel={item.timeLabel}
               project={projectByKey.get(scopeKey) ?? null}
@@ -830,7 +832,7 @@ function ThreadNavigationSidebarPane(
       showMoreSettled,
       sidebarScrollGesture,
       snoozeEnvironmentIds,
-      savedSnoozePresets,
+      snoozePresetsByEnvironmentId,
       snoozeThread,
       toggleSettledShelf,
       toggleSnoozedShelf,

@@ -36,6 +36,7 @@ import { useThreadSearch } from "../../state/queries";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
 import { usePendingThreadOrder } from "../../state/thread-order";
 import { threadListEnvironmentsAtom } from "../../state/server";
+import { NO_SNOOZE_PRESETS } from "../../state/thread-list-environments";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import { useQueuedThreadKeys } from "../../state/use-thread-outbox";
 import {
@@ -58,7 +59,6 @@ import {
   type ThreadListV2ListItem,
 } from "../threads/threadListV2";
 import { useThreadListV2ShelfPreferences } from "../threads/use-thread-list-v2-shelf-preferences";
-import { useSavedSnoozePresets } from "../threads/use-saved-snooze-presets";
 import type { HomeListFilterMenuEnvironment } from "./home-list-filter-menu";
 import {
   buildHomeProjectScopes,
@@ -475,7 +475,6 @@ export function HomeScreen(props: HomeScreenProps) {
     toggleSnoozedShelf,
     toggleWorkingShelf,
   } = useThreadListV2ShelfPreferences();
-  const savedSnoozePresets = useSavedSnoozePresets();
   // The queued-start and snooze helpers need a clock while the list stays open.
   const [nowMinute, setNowMinute] = useState(() => new Date().toISOString().slice(0, 16));
   // Snooze wake times are second-precise; a counter bumped exactly at the
@@ -503,6 +502,7 @@ export function HomeScreen(props: HomeScreenProps) {
     pinReorderEnvironmentIds,
     activeReorderEnvironmentIds,
     titleRegenerationEnvironmentIds,
+    snoozePresetsByEnvironmentId,
   } = listEnvironments;
   const resolveProviderInstance = useThreadRowProviderInstanceResolver(providersByEnvironmentId);
   const pendingOrder = usePendingThreadOrder(nowMinute, snoozeWakeTick);
@@ -724,7 +724,9 @@ export function HomeScreen(props: HomeScreenProps) {
           snoozed={item.item.snoozed}
           pinned={item.item.pinned}
           snoozePresetMinute={item.snoozePresetMinute ?? ""}
-          savedSnoozePresets={savedSnoozePresets}
+          savedSnoozePresets={
+            snoozePresetsByEnvironmentId.get(thread.environmentId) ?? NO_SNOOZE_PRESETS
+          }
           snoozeWakeLabelText={item.snoozeWakeLabelText}
           timeLabel={item.timeLabel}
           showTrailingDivider={item.showTrailingDivider}
@@ -788,7 +790,7 @@ export function HomeScreen(props: HomeScreenProps) {
       handleRegenerateThreadTitle,
       handleRenameThread,
       handleSettleThread,
-      savedSnoozePresets,
+      snoozePresetsByEnvironmentId,
       handleSnoozeThread,
       handleUnpinThread,
       handleUnsnoozeThread,

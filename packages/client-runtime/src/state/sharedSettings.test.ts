@@ -235,6 +235,19 @@ describe("filterSharedServerPatch", () => {
       );
     },
   );
+
+  it("shares snooze presets only with servers that persist them", () => {
+    const patch = {
+      snoozePresets: [{ kind: "delay", amount: 3, unit: "days" }] as const,
+      sidebarAutoSettleAfterDays: 7,
+    };
+    expect(filterSharedServerPatch(patch, { snoozePresets: true })).toEqual(patch);
+    // An older server would silently drop the key and then read as a mismatch.
+    expect(filterSharedServerPatch(patch, {})).toEqual({ sidebarAutoSettleAfterDays: 7 });
+    expect(pickSharedServerSettings(DEFAULT_SERVER_SETTINGS, {})).not.toHaveProperty(
+      "snoozePresets",
+    );
+  });
 });
 
 describe("findSharedSettingsMismatches", () => {

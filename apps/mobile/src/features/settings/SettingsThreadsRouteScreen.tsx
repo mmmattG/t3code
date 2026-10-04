@@ -15,7 +15,6 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsProjectOverridesSection } from "./components/SettingsProjectOverridesSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
-import { SnoozePresetsSettingsSection } from "./components/SnoozePresetsSettingsSection";
 import { SettingsScreen } from "./components/SettingsScreen";
 import {
   AndroidSettingsEnvironmentFilter,
@@ -46,7 +45,6 @@ export function SettingsThreadsRouteScreen() {
           contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
         >
           <AutoSettleSettingsRows />
-          <SnoozePresetsSettingsSection />
           <BetaSettingsSection />
           <LegacySettingsSection />
         </ScrollView>

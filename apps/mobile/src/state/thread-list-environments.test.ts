@@ -190,6 +190,26 @@ describe("thread list environment projection", () => {
     }
   });
 
+  it("shares each environment's snooze presets, stable until they change", () => {
+    const h = harness();
+    try {
+      const threeDays = { kind: "delay", amount: 3, unit: "days" } as const;
+      expect(h.read().snoozePresetsByEnvironmentId.get(ID)).toBeUndefined();
+      h.write({ ...config, settings: { ...config.settings, snoozePresets: [threeDays] } });
+      const withPreset = h.read();
+      expect(withPreset.snoozePresetsByEnvironmentId.get(ID)).toEqual([threeDays]);
+      expect(withPreset.snoozePresetsByEnvironmentId.get(OTHER_ID)).toBeUndefined();
+      // A fresh settings broadcast with the same presets keeps row props stable.
+      h.write({ ...config, settings: { ...config.settings, snoozePresets: [{ ...threeDays }] } });
+      expect(h.read()).toBe(withPreset);
+      h.write(config);
+      expect(h.read().snoozePresetsByEnvironmentId.get(ID)).toBeUndefined();
+      expect(h.notifications().list).toBe(2);
+    } finally {
+      h.registry.dispose();
+    }
+  });
+
   it("restores detected machine kind after removing an override", () => {
     const h = harness();
     try {

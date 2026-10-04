@@ -541,6 +541,31 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     ).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 
+  it.effect("persists snooze presets and replaces the list on update", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const serverConfig = yield* ServerConfig.ServerConfig;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+        const changes = yield* serverSettings.subscribeChanges;
+        const readPersisted = fileSystem
+          .readFileString(serverConfig.settingsPath)
+          .pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(ServerSettings))));
+        const threeDays = { kind: "delay", amount: 3, unit: "days" } as const;
+        const fridayMorning = { kind: "weekday", weekday: 5, time: "09:00" } as const;
+
+        yield* serverSettings.updateSettings({ snoozePresets: [threeDays, fridayMorning] });
+        const change = Option.getOrUndefined(yield* Stream.runHead(changes));
+        assert.deepStrictEqual(change?.snoozePresets, [threeDays, fridayMorning]);
+        assert.deepStrictEqual((yield* readPersisted).snoozePresets, [threeDays, fridayMorning]);
+
+        // Removing a preset sends the shorter list; it must not merge by index.
+        yield* serverSettings.updateSettings({ snoozePresets: [fridayMorning] });
+        assert.deepStrictEqual((yield* readPersisted).snoozePresets, [fridayMorning]);
+      }),
+    ).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
   it.effect("persists and broadcasts thread settlement settings", () =>
     Effect.scoped(
       Effect.gen(function* () {

@@ -46,34 +46,6 @@ export const TimestampFormat = Schema.Literals(["locale", "12-hour", "24-hour"])
 export type TimestampFormat = typeof TimestampFormat.Type;
 const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
 
-/**
- * A saved Snooze menu choice. Both kinds resolve in the device's local time
- * zone when the menu opens:
- * - `delay`: elapsed time from the moment you choose it; a day is 24 hours,
- *   matching Custom… durations.
- * - `weekday`: the next such weekday after today (never today) at a local
- *   wall-clock time. Weekday 0 is Sunday.
- */
-export const SnoozePresetUnit = Schema.Literals(["minutes", "hours", "days"]);
-export type SnoozePresetUnit = typeof SnoozePresetUnit.Type;
-export const MAX_SNOOZE_PRESET_AMOUNT = 999;
-export const SnoozePresetRule = Schema.Union([
-  Schema.Struct({
-    kind: Schema.Literal("delay"),
-    amount: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: MAX_SNOOZE_PRESET_AMOUNT })),
-    unit: SnoozePresetUnit,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("weekday"),
-    weekday: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 6 })),
-    /** 24-hour local "HH:MM". */
-    time: Schema.String.check(Schema.isPattern(/^([01]\d|2[0-3]):[0-5]\d$/)),
-  }),
-]);
-export type SnoozePresetRule = typeof SnoozePresetRule.Type;
-/** Keeps the Snooze menu scannable: built-ins plus this many saved choices. */
-export const MAX_SNOOZE_PRESETS = 8;
-
 export const DiffLayout = Schema.Literals(["stacked", "split"]);
 export type DiffLayout = typeof DiffLayout.Type;
 const DEFAULT_DIFF_LAYOUT: DiffLayout = "stacked";
@@ -513,11 +485,6 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   timestampFormat: TimestampFormat.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
-  ),
-  // Saved Snooze menu choices, shown alongside the built-in ones. Entries
-  // from a newer build that this one cannot read are dropped, not fatal.
-  snoozePresets: ForwardCompatibleArray(SnoozePresetRule).pipe(
-    Schema.withDecodingDefault(Effect.succeed([])),
   ),
   snapShotEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   snapShotIncludeAccessibility: Schema.Boolean.pipe(
@@ -1227,6 +1194,34 @@ export const StorageCleanupSettings = Schema.Struct({
 });
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 
+/**
+ * A saved Snooze menu choice. The rule is stored on the environment; each
+ * client resolves it in its own local time zone when the menu opens:
+ * - `delay`: elapsed time from the moment you choose it; a day is 24 hours,
+ *   matching Custom… durations.
+ * - `weekday`: the next such weekday after today (never today) at a local
+ *   wall-clock time. Weekday 0 is Sunday.
+ */
+export const SnoozePresetUnit = Schema.Literals(["minutes", "hours", "days"]);
+export type SnoozePresetUnit = typeof SnoozePresetUnit.Type;
+export const MAX_SNOOZE_PRESET_AMOUNT = 999;
+export const SnoozePresetRule = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("delay"),
+    amount: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: MAX_SNOOZE_PRESET_AMOUNT })),
+    unit: SnoozePresetUnit,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("weekday"),
+    weekday: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 6 })),
+    /** 24-hour local "HH:MM". */
+    time: Schema.String.check(Schema.isPattern(/^([01]\d|2[0-3]):[0-5]\d$/)),
+  }),
+]);
+export type SnoozePresetRule = typeof SnoozePresetRule.Type;
+/** Keeps the Snooze menu scannable: built-ins plus this many saved choices. */
+export const MAX_SNOOZE_PRESETS = 8;
+
 export const ServerSettings = Schema.Struct({
   worktreeCleanup: WorktreeCleanup.pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   storageCleanup: StorageCleanupSettings.pipe(
@@ -1307,6 +1302,12 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS)),
   ),
   snoozeLimitedThreads: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  // Saved Snooze menu choices, listed after the built-in ones on every client
+  // of the environment. Entries from a newer build that this one cannot read
+  // are dropped rather than failing the whole settings file.
+  snoozePresets: ForwardCompatibleArray(SnoozePresetRule).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   autoResumeLimitedThreads: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   sidebarAutoSettleOnMerge: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   backgroundActivity: BackgroundActivitySettings,
@@ -1670,6 +1671,7 @@ export const ServerSettingsPatch = Schema.Struct({
   sidebarAutoSettleOnMerge: Schema.optionalKey(Schema.Boolean),
   autoResumeLimitedThreads: Schema.optionalKey(Schema.Boolean),
   snoozeLimitedThreads: Schema.optionalKey(Schema.Boolean),
+  snoozePresets: Schema.optionalKey(Schema.Array(SnoozePresetRule)),
   backgroundActivity: Schema.optionalKey(
     Schema.Struct({
       schemaVersion: Schema.optionalKey(Schema.Literal(1)),
@@ -1829,7 +1831,6 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
   timestampFormat: Schema.optionalKey(TimestampFormat),
-  snoozePresets: Schema.optionalKey(Schema.Array(SnoozePresetRule)),
   snapShotEnabled: Schema.optionalKey(Schema.Boolean),
   snapShotIncludeAccessibility: Schema.optionalKey(Schema.Boolean),
   snapShotShortcut: Schema.optionalKey(SnapShotShortcut),

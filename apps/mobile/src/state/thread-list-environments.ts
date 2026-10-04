@@ -4,7 +4,9 @@ import {
   type EnvironmentMachineKind,
   type ServerConfig,
   type ServerProvider,
+  type SnoozePresetRule,
 } from "@t3tools/contracts";
+import { snoozePresetRuleKey } from "@t3tools/client-runtime/state/thread-settled";
 import { Atom } from "effect/unstable/reactivity";
 
 export type ThreadListProvider = Pick<
@@ -22,6 +24,9 @@ const capabilityKeys = [
   "threadTitleRegeneration",
 ] as const;
 
+/** Rows fall back to this when an environment has no saved snooze presets. */
+export const NO_SNOOZE_PRESETS: ReadonlyArray<SnoozePresetRule> = [];
+
 function selectEnvironment(config: ServerConfig) {
   return {
     providers: config.providers.map(
@@ -35,7 +40,18 @@ function selectEnvironment(config: ServerConfig) {
     ),
     machineKind: resolveEnvironmentMachineKind(config),
     capabilities: config.environment.capabilities,
+    snoozePresets: config.settings.snoozePresets ?? NO_SNOOZE_PRESETS,
   };
+}
+
+function sameSnoozePresets(
+  left: ReadonlyArray<SnoozePresetRule>,
+  right: ReadonlyArray<SnoozePresetRule>,
+) {
+  return (
+    left.length === right.length &&
+    left.every((rule, index) => snoozePresetRuleKey(rule) === snoozePresetRuleKey(right[index]!))
+  );
 }
 
 type ListEnvironment = ReturnType<typeof selectEnvironment>;
@@ -69,9 +85,11 @@ function collectEnvironments(environments: ReadonlyMap<EnvironmentId, ListEnviro
   const pinReorderEnvironmentIds = new Set<EnvironmentId>();
   const activeReorderEnvironmentIds = new Set<EnvironmentId>();
   const titleRegenerationEnvironmentIds = new Set<EnvironmentId>();
-  for (const [id, { providers, machineKind, capabilities }] of environments) {
+  const snoozePresetsByEnvironmentId = new Map<EnvironmentId, ReadonlyArray<SnoozePresetRule>>();
+  for (const [id, { providers, machineKind, capabilities, snoozePresets }] of environments) {
     providersByEnvironmentId.set(id, providers);
     machineByEnvironmentId.set(id, machineKind);
+    if (snoozePresets.length > 0) snoozePresetsByEnvironmentId.set(id, snoozePresets);
     if (capabilities.threadSettlement === true) settlementEnvironmentIds.add(id);
     if (capabilities.threadSnooze === true) snoozeEnvironmentIds.add(id);
     if (capabilities.threadAutoSettleOptOut === true) autoSettleOptOutEnvironmentIds.add(id);
@@ -90,10 +108,11 @@ function collectEnvironments(environments: ReadonlyMap<EnvironmentId, ListEnviro
     pinReorderEnvironmentIds,
     activeReorderEnvironmentIds,
     titleRegenerationEnvironmentIds,
+    snoozePresetsByEnvironmentId,
   };
 }
 
-/** Provider freshness and model catalogs do not affect the navigation lists. */
+/** Provider freshness, model catalogs, and unrelated settings do not affect the navigation lists. */
 export function createThreadListEnvironmentsAtom(
   configsAtom: Atom.Atom<ReadonlyMap<EnvironmentId, ServerConfig>>,
 ) {
@@ -109,9 +128,13 @@ export function createThreadListEnvironmentsAtom(
       if (prior && sameProviders(prior.providers, selected.providers)) {
         selected.providers = prior.providers;
       }
+      if (prior && sameSnoozePresets(prior.snoozePresets, selected.snoozePresets)) {
+        selected.snoozePresets = prior.snoozePresets;
+      }
       const unchanged =
         prior &&
         prior.providers === selected.providers &&
+        prior.snoozePresets === selected.snoozePresets &&
         prior.machineKind === selected.machineKind &&
         capabilityKeys.every(
           (key) => (prior.capabilities[key] === true) === (selected.capabilities[key] === true),

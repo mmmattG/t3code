@@ -2,11 +2,12 @@
  * Shared server settings.
  *
  * Every server keeps its own `settings.json`, but some keys are user
- * preferences that only live on the server because the server has to act on
- * them (auto-settlement runs with no client attached). A user does not want
- * those to differ per machine. Clients write these keys to every shared-settings
- * sync target, and warn when another target still holds a different value so
- * the user can push their current value out.
+ * preferences that live on the server either because the server has to act on
+ * them (auto-settlement runs with no client attached) or because every client
+ * of the environment should agree (snooze presets reach mobile this way). A
+ * user does not want those to differ per machine. Clients write these keys to
+ * every shared-settings sync target, and warn when another target still holds
+ * a different value so the user can push their current value out.
  */
 import type {
   EnvironmentId,
@@ -27,6 +28,7 @@ const SHARED_SERVER_SETTING_KEYS = [
   "sidebarAutoSettleOnMerge",
   "autoResumeLimitedThreads",
   "snoozeLimitedThreads",
+  "snoozePresets",
   "newWorktreesStartFromOrigin",
   "sourceControlWritingStyle",
   "textGenerationModelSelection",
@@ -35,6 +37,11 @@ const SHARED_SERVER_SETTING_KEYS = [
 export type SharedServerSettingKey = (typeof SHARED_SERVER_SETTING_KEYS)[number];
 
 const SHARED_KEY_SET = new Set<string>(SHARED_SERVER_SETTING_KEYS);
+
+type SharedSettingsCapabilities = Pick<
+  ExecutionEnvironmentCapabilities,
+  "threadRestartContinuation" | "snoozePresets"
+>;
 
 /** Split a server patch into the keys every environment should receive and the primary-only rest. */
 export function splitSharedServerPatch(patch: ServerSettingsPatch): {
@@ -59,7 +66,7 @@ export function splitSharedServerPatch(patch: ServerSettingsPatch): {
 /** Filter unsupported preferences; direct model writes retain the server's fallback behavior. */
 export function filterSharedServerPatch(
   patch: ServerSettingsPatch,
-  capabilities: Pick<ExecutionEnvironmentCapabilities, "threadRestartContinuation"> | undefined,
+  capabilities: SharedSettingsCapabilities | undefined,
   settings?: ServerSettings,
   sourceSettings = settings,
   targetIsSource = false,
@@ -81,15 +88,16 @@ export function filterSharedServerPatch(
   ) {
     patch = Struct.omit(patch, ["textGenerationModelSelection"]);
   }
-  return capabilities?.threadRestartContinuation === true
-    ? patch
-    : Struct.omit(patch, ["continueThreadsAfterServerUpdate"]);
+  if (capabilities?.threadRestartContinuation !== true) {
+    patch = Struct.omit(patch, ["continueThreadsAfterServerUpdate"]);
+  }
+  return capabilities?.snoozePresets === true ? patch : Struct.omit(patch, ["snoozePresets"]);
 }
 
 /** The shared subset supported by one environment. */
 export function pickSharedServerSettings(
   settings: ServerSettings,
-  capabilities?: Pick<ExecutionEnvironmentCapabilities, "threadRestartContinuation">,
+  capabilities?: SharedSettingsCapabilities,
 ): ServerSettingsPatch {
   return filterSharedServerPatch(
     Struct.pick(settings, SHARED_SERVER_SETTING_KEYS),
@@ -121,9 +129,7 @@ export interface SharedSettingsEnvironment {
   readonly label: string;
   readonly syncEligible: boolean;
   readonly settings: ServerSettings | null;
-  readonly capabilities?:
-    | Pick<ExecutionEnvironmentCapabilities, "threadRestartContinuation">
-    | undefined;
+  readonly capabilities?: SharedSettingsCapabilities | undefined;
 }
 
 /**
@@ -137,9 +143,7 @@ export interface SharedSettingsEnvironment {
 export function findSharedSettingsMismatches(input: {
   readonly primaryEnvironmentId: EnvironmentId | null;
   readonly primarySettings: ServerSettings | null;
-  readonly primaryCapabilities?:
-    | Pick<ExecutionEnvironmentCapabilities, "threadRestartContinuation">
-    | undefined;
+  readonly primaryCapabilities?: SharedSettingsCapabilities | undefined;
   readonly environments: ReadonlyArray<SharedSettingsEnvironment>;
 }): ReadonlyArray<{ readonly environmentId: EnvironmentId; readonly label: string }> {
   if (input.primaryEnvironmentId === null || input.primarySettings === null) {

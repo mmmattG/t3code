@@ -10,7 +10,11 @@ import {
   type ThreadHistoryMeta,
 } from "@t3tools/client-runtime/state/threads";
 import type { ScopedProjectRef, ScopedThreadRef, ServerConfig } from "@t3tools/contracts";
-import type { EnvironmentId, OrchestrationV2ProjectedTurnItem } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  OrchestrationV2ProjectedTurnItem,
+  SnoozePresetRule,
+} from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentProjects } from "./projects";
@@ -251,6 +255,18 @@ export function readEnvironmentSupportsSnooze(environmentId: EnvironmentId): boo
   return (
     appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
       .threadSnooze === true
+  );
+}
+
+const NO_SNOOZE_PRESETS: ReadonlyArray<SnoozePresetRule> = [];
+
+/** The environment's saved Snooze menu choices; none on servers that predate them. */
+export function readEnvironmentSnoozePresets(
+  environmentId: EnvironmentId,
+): ReadonlyArray<SnoozePresetRule> {
+  return (
+    appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.settings.snoozePresets ??
+    NO_SNOOZE_PRESETS
   );
 }
 

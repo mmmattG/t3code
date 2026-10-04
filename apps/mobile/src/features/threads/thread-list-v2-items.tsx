@@ -471,7 +471,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       row's menu offers snooze presets, so those menus refresh while mounted
       without invalidating every other row. */
   readonly snoozePresetMinute: string;
-  /** This device's saved presets, listed after the built-in snooze choices. */
+  /** The thread environment's saved presets, listed after the built-in snooze choices. */
   readonly savedSnoozePresets: ReadonlyArray<SnoozePresetRule>;
   readonly project: EnvironmentProject | null;
   readonly projectTitle?: string;

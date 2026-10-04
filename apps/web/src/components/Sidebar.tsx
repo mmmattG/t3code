@@ -52,6 +52,7 @@ import {
   scopedThreadKey,
 } from "@t3tools/client-runtime/environment";
 import {
+  type EnvironmentId,
   type EnvironmentMachineKind,
   type ScopedThreadRef,
   type ThreadId,
@@ -137,7 +138,7 @@ import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
-import { getClientSettings, useClientSettings } from "../hooks/useSettings";
+import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -148,6 +149,7 @@ import {
   usePrimaryEnvironmentId,
 } from "../state/environments";
 import {
+  readEnvironmentSnoozePresets,
   readThreadShell,
   useAllEnvironmentProjectSnapshotsReady,
   useProjects,
@@ -546,17 +548,22 @@ function SnoozeMenuButton(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSnooze: (preset: Pick<SnoozePreset, "snoozedUntil">) => void;
+  environmentId: EnvironmentId;
   timestampFormat: TimestampFormat;
 }) {
-  const { open, onOpenChange, onSnooze, timestampFormat } = props;
+  const { open, onOpenChange, onSnooze, environmentId, timestampFormat } = props;
   // Presets resolve at open time so "In 1 hour" is relative to the click,
   // not to when the row mounted.
   const presets = useMemo(
     () =>
       open
-        ? resolveSnoozePresets(new Date(), timestampFormat, getClientSettings().snoozePresets)
+        ? resolveSnoozePresets(
+            new Date(),
+            timestampFormat,
+            readEnvironmentSnoozePresets(environmentId),
+          )
         : [],
-    [open, timestampFormat],
+    [environmentId, open, timestampFormat],
   );
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
@@ -2071,6 +2078,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                           open={snoozeMenuOpen}
                           onOpenChange={setSnoozeMenuOpen}
                           onSnooze={handleSnoozePreset}
+                          environmentId={thread.environmentId}
                           timestampFormat={props.timestampFormat}
                         />
                       ) : null}
@@ -4204,10 +4212,14 @@ export default function Sidebar() {
       const unpinMenuItem = buildBulkUnpinContextMenuItem({
         pinnedCount: pinnedSelectedThreads.length,
       });
+      // Environments normally share presets. Any that differ all appear, and
+      // the same preset from several environments collapses into one row.
       const snoozePresets = resolveSnoozePresets(
         new Date(),
         timestampFormat,
-        getClientSettings().snoozePresets,
+        [...new Set(selectedThreads.map((thread) => thread.environmentId))].flatMap(
+          (environmentId) => readEnvironmentSnoozePresets(environmentId),
+        ),
       );
       const clicked = await settlePromise(() =>
         api.contextMenu.show(
@@ -4466,7 +4478,7 @@ export default function Sidebar() {
         const snoozePresets = resolveSnoozePresets(
           new Date(),
           timestampFormat,
-          getClientSettings().snoozePresets,
+          readEnvironmentSnoozePresets(thread.environmentId),
         );
         const threadProjectGroup =
           projectGroupsRef.current.find((project) =>

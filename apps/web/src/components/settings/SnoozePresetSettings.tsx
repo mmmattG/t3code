@@ -3,6 +3,7 @@ import { useId, useState } from "react";
 import {
   MAX_SNOOZE_PRESET_AMOUNT,
   MAX_SNOOZE_PRESETS,
+  type SnoozePresetRule,
   type SnoozePresetUnit,
 } from "@t3tools/contracts/settings";
 import {
@@ -13,12 +14,6 @@ import {
   type SnoozePresetDraft,
 } from "@t3tools/client-runtime/state/thread-settled";
 
-import {
-  getClientSettings,
-  useClientSettings,
-  useClientSettingsHydrated,
-  useUpdateClientSettings,
-} from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { formatShortTimestamp } from "../../timestampFormat";
 import { Button } from "../ui/button";
@@ -36,6 +31,8 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { SettingResetButton, SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
+import { useSettingsScope } from "./SettingsScopeContext";
+import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 
 const UNIT_LABELS: Record<SnoozePresetUnit, string> = {
   minutes: "Minutes",
@@ -47,23 +44,36 @@ const WEEKDAY_LABELS = Object.fromEntries(
 );
 
 /**
- * Saved Snooze menu choices for this device. Every snooze menu on web and
- * desktop lists them after the built-in choices.
+ * Saved Snooze menu choices. They live in the environment's shared settings,
+ * so every client of the environment, mobile included, lists them after the
+ * built-in choices. Mobile shows them but has no editor.
  */
 export function SnoozePresetSettings() {
-  const saved = useClientSettings((settings) => settings.snoozePresets);
-  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
-  const hydrated = useClientSettingsHydrated();
-  const updateSettings = useUpdateClientSettings();
+  const saved = useScopedSettings((settings) => settings.snoozePresets);
+  const timestampFormat = useScopedSettings((settings) => settings.timestampFormat);
+  const updateSettings = useUpdateScopedSettings();
+  const { connectedEnvironments } = useSettingsScope();
   const [formOpen, setFormOpen] = useState(false);
+  // Older servers drop the key, so an edit would silently vanish there.
+  const outdated = connectedEnvironments.some(
+    (environment) => environment.serverConfig?.environment.capabilities.snoozePresets !== true,
+  );
   const full = saved.length >= MAX_SNOOZE_PRESETS;
   const formatTime = (date: Date) => formatShortTimestamp(date.toISOString(), timestampFormat);
 
   return (
     <SettingsRow
+      serverScoped
+      settingKeys={["snoozePresets"]}
       {...searchableSetting("snooze-presets")}
-      description="Add your own choices to the Snooze menu, after the built-in ones. Times use this device's time zone."
-      status={full ? `You can save up to ${MAX_SNOOZE_PRESETS} presets.` : null}
+      description="Add your own choices to the Snooze menu, after the built-in ones. Times use the time zone of the device you snooze from."
+      status={
+        outdated
+          ? "Update this environment's server to change snooze presets."
+          : full
+            ? `You can save up to ${MAX_SNOOZE_PRESETS} presets.`
+            : null
+      }
       resetAction={
         saved.length > 0 ? (
           <SettingResetButton
@@ -75,13 +85,19 @@ export function SnoozePresetSettings() {
       control={
         <Popover open={formOpen} onOpenChange={setFormOpen}>
           <PopoverTrigger
-            render={<Button size="sm" variant="outline" disabled={!hydrated || full} />}
+            render={<Button size="sm" variant="outline" disabled={outdated || full} />}
           >
             <PlusIcon />
             Add preset
           </PopoverTrigger>
           <PopoverPopup align="end" aria-label="Add snooze preset">
-            <SnoozePresetForm onAdded={() => setFormOpen(false)} />
+            <SnoozePresetForm
+              saved={saved}
+              onAdd={(rule) => {
+                updateSettings({ snoozePresets: [...saved, rule] });
+                setFormOpen(false);
+              }}
+            />
           </PopoverPopup>
         </Popover>
       }
@@ -104,10 +120,10 @@ export function SnoozePresetSettings() {
                   size="icon-xs"
                   variant="ghost-muted"
                   aria-label={`Remove ${label}`}
-                  disabled={!hydrated}
+                  disabled={outdated}
                   onClick={() =>
                     updateSettings({
-                      snoozePresets: getClientSettings().snoozePresets.filter(
+                      snoozePresets: saved.filter(
                         (candidate) => snoozePresetRuleKey(candidate) !== key,
                       ),
                     })
@@ -124,9 +140,11 @@ export function SnoozePresetSettings() {
   );
 }
 
-function SnoozePresetForm(props: { readonly onAdded: () => void }) {
+function SnoozePresetForm(props: {
+  readonly saved: ReadonlyArray<SnoozePresetRule>;
+  readonly onAdd: (rule: SnoozePresetRule) => void;
+}) {
   const id = useId();
-  const updateSettings = useUpdateClientSettings();
   const [kind, setKind] = useState<SnoozePresetDraft["kind"]>("delay");
   const [amount, setAmount] = useState("3");
   const [unit, setUnit] = useState<SnoozePresetUnit>("days");
@@ -139,18 +157,15 @@ function SnoozePresetForm(props: { readonly onAdded: () => void }) {
       className="flex w-72 flex-col gap-3"
       onSubmit={(event) => {
         event.preventDefault();
-        // Validate against the latest list, not the one this form opened with.
-        const current = getClientSettings().snoozePresets;
         const result = parseSnoozePresetDraft(
           kind === "delay" ? { kind, amount, unit } : { kind, weekday, time },
-          current,
+          props.saved,
         );
         if ("error" in result) {
           setError(result.error);
           return;
         }
-        updateSettings({ snoozePresets: [...current, result.rule] });
-        props.onAdded();
+        props.onAdd(result.rule);
       }}
     >
       <ToggleGroup

@@ -232,6 +232,7 @@ export const make = Effect.gen(function* () {
       threadRestartContinuation: true,
       projectSettingsOverrides: true,
       threadSnooze: true,
+      snoozePresets: true,
       environmentThemes: true,
       usageLimitSources: true,
       usagePriceOverrides: true,

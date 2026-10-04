@@ -20,6 +20,7 @@ import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
 import {
+  readEnvironmentSnoozePresets,
   readEnvironmentSupportsAutoSettleOptOut,
   readEnvironmentSupportsPinning,
   readEnvironmentSupportsSettlement,
@@ -39,7 +40,7 @@ import { buildPhysicalToLogicalProjectKeyMap } from "../sidebarProjectGrouping";
 import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
 import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
-import { getClientSettings, useClientSettings } from "./useSettings";
+import { useClientSettings } from "./useSettings";
 import { useThreadActions } from "./useThreadActions";
 
 function failureToast(title: string, error: unknown) {
@@ -143,7 +144,7 @@ export function useThreadActionMenu(input: {
         const snoozePresets = resolveSnoozePresets(
           now,
           timestampFormat,
-          getClientSettings().snoozePresets,
+          readEnvironmentSnoozePresets(threadRef.environmentId),
         );
         const items = buildThreadActionMenuItems({
           branch: thread.branch ?? null,
