@@ -21,6 +21,12 @@ const KEYBINDINGS = compileResolvedKeybindingsConfig([
   { key: "mod+3", command: "effortPicker.jump.3", when: "effortPickerOpen" },
 ]);
 
+// The same jump on a different key depending on whether the composer's terminal is open.
+const TERMINAL_KEYBINDINGS = compileResolvedKeybindingsConfig([
+  { key: "mod+1", command: "effortPicker.jump.2", when: "effortPickerOpen && terminalOpen" },
+  { key: "mod+2", command: "effortPicker.jump.2", when: "effortPickerOpen && !terminalOpen" },
+]);
+
 const REASONING: ProviderOptionDescriptor = {
   id: "reasoningEffort",
   label: "Reasoning",
@@ -73,7 +79,7 @@ describe("traits menu effort jumps", () => {
   async function renderMenu(
     provider: string,
     descriptors: ReadonlyArray<ProviderOptionDescriptor>,
-    prompt = "",
+    { prompt = "", keybindings = KEYBINDINGS, terminalOpen = false } = {},
   ) {
     const onModelOptionsChange =
       vi.fn<(options: ReadonlyArray<ProviderOptionSelection> | undefined) => void>();
@@ -100,7 +106,8 @@ describe("traits menu effort jumps", () => {
               onPromptChange={onPromptChange}
               onModelOptionsChange={onModelOptionsChange}
               planModeEnabled={false}
-              keybindings={KEYBINDINGS}
+              keybindings={keybindings}
+              terminalOpen={terminalOpen}
             />
           </MenuPopup>
         </Menu>
@@ -156,7 +163,7 @@ describe("traits menu effort jumps", () => {
     const { onModelOptionsChange, onPromptChange } = await renderMenu(
       "claudeAgent",
       [CLAUDE_EFFORT],
-      "Please ultrathink about this",
+      { prompt: "Please ultrathink about this" },
     );
     expect(document.querySelector("kbd")).toBeNull();
     await press("2");
@@ -164,4 +171,27 @@ describe("traits menu effort jumps", () => {
     expect(onPromptChange).not.toHaveBeenCalled();
     expect(isEffortPickerOpen()).toBe(true);
   });
+
+  it.each([
+    { terminalOpen: true, liveKey: "1", deadKey: "2" },
+    { terminalOpen: false, liveKey: "2", deadKey: "1" },
+  ])(
+    "hints and handles the key bound for the terminal state (terminalOpen: $terminalOpen)",
+    async ({ terminalOpen, liveKey, deadKey }) => {
+      const { onModelOptionsChange } = await renderMenu("codex", [REASONING], {
+        keybindings: TERMINAL_KEYBINDINGS,
+        terminalOpen,
+      });
+      expect(Array.from(document.querySelectorAll("kbd"), (kbd) => kbd.textContent)).toEqual([
+        `Ctrl+${liveKey}`,
+      ]);
+
+      expect((await press(deadKey)).defaultPrevented).toBe(false);
+      expect(onModelOptionsChange).not.toHaveBeenCalled();
+      expect((await press(liveKey)).defaultPrevented).toBe(true);
+      expect(onModelOptionsChange).toHaveBeenCalledExactlyOnceWith([
+        { id: "reasoningEffort", value: "high" },
+      ]);
+    },
+  );
 });

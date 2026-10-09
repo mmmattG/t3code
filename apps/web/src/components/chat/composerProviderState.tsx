@@ -59,6 +59,7 @@ type TraitsRenderInput = {
   triggerClassName?: string;
   isComposerOwned?: boolean;
   keybindings?: ResolvedKeybindingsConfig;
+  terminalOpen?: boolean;
 };
 
 export function getComposerPromptInjectionState(prompt: string): ComposerPromptInjectionState {
@@ -183,6 +184,7 @@ function renderTraitsControl(
     triggerClassName,
     isComposerOwned,
     keybindings,
+    terminalOpen,
   } = input;
   const hasTarget = threadRef !== undefined || draftId !== undefined;
   const { selections: resolvedModelOptions } = resolveComposerOptionSelections(
@@ -223,6 +225,7 @@ function renderTraitsControl(
       {...(triggerClassName !== undefined ? { triggerClassName } : {})}
       {...(isComposerOwned ? { isComposerOwned } : {})}
       keybindings={keybindings}
+      terminalOpen={terminalOpen}
     />
   );
 }

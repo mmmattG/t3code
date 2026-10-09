@@ -17,7 +17,7 @@ import {
   isClaudeUltrathinkPrompt,
   normalizeModelSlug,
 } from "@t3tools/shared/model";
-import { memo, useCallback, useEffect, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { BrainIcon } from "lucide-react";
 import {
   Menu,
@@ -100,7 +100,6 @@ type TraitsPersistence =
     };
 
 const ULTRATHINK_PROMPT_PREFIX = "Ultrathink:\n";
-const EFFORT_JUMP_SHORTCUT_CONTEXT = { effortPickerOpen: true } as const;
 
 function DefaultBadge() {
   return (
@@ -293,6 +292,8 @@ export interface TraitsMenuContentProps {
   isComposerOwned?: boolean;
   /** Enables numbered effort jumps. Menus without keybindings, such as in Settings, have none. */
   keybindings?: ResolvedKeybindingsConfig | undefined;
+  /** The composer's terminal state, for effort jump `when` conditions. */
+  terminalOpen?: boolean | undefined;
 }
 
 export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
@@ -307,6 +308,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   allowPromptInjectedEffort = true,
   planModeEnabled,
   keybindings,
+  terminalOpen = false,
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
   const modelSelection =
@@ -357,6 +359,12 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   const effortItemRefs = useRef<Array<HTMLElement | null>>([]);
   const effortJumpKeybindings =
     primarySelectDescriptor !== null && !modelIsUnavailable ? keybindings : undefined;
+  // Matches the model picker's jump context: the open menu holds focus, so
+  // the terminal does not. Hints and key presses both resolve against it.
+  const effortJumpShortcutContext = useMemo(
+    () => ({ terminalFocus: false, terminalOpen, effortPickerOpen: true }),
+    [terminalOpen],
+  );
   useEffect(() => {
     if (!effortJumpKeybindings) {
       return;
@@ -367,7 +375,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
       }
       const command = resolveShortcutCommand(event, effortJumpKeybindings, {
         platform: navigator.platform,
-        context: EFFORT_JUMP_SHORTCUT_CONTEXT,
+        context: effortJumpShortcutContext,
       });
       const jumpIndex = effortPickerJumpIndexFromCommand(command ?? "");
       if (jumpIndex === null) {
@@ -384,14 +392,14 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     return () => {
       window.removeEventListener("keydown", onWindowKeyDown, true);
     };
-  }, [effortJumpKeybindings]);
+  }, [effortJumpKeybindings, effortJumpShortcutContext]);
   const effortJumpLabel = (optionIndex: number) =>
     !effortJumpKeybindings || ultrathinkInBodyText
       ? null
       : shortcutLabelForCommand(
           effortJumpKeybindings,
           effortPickerJumpCommandForIndex(optionIndex),
-          { platform: navigator.platform, context: EFFORT_JUMP_SHORTCUT_CONTEXT },
+          { platform: navigator.platform, context: effortJumpShortcutContext },
         );
 
   const handleSelectChange = (
@@ -647,6 +655,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   triggerClassName,
   isComposerOwned,
   keybindings,
+  terminalOpen,
   size = "sm",
   hidden = false,
   disabled = false,
@@ -759,6 +768,7 @@ export const TraitsPicker = memo(function TraitsPicker({
           allowPromptInjectedEffort={allowPromptInjectedEffort}
           planModeEnabled={planModeEnabled}
           keybindings={keybindings}
+          terminalOpen={terminalOpen}
           {...persistence}
         />
       </MenuPopup>
