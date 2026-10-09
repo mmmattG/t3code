@@ -2962,6 +2962,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     prompt,
     onPromptChange: setPromptFromTraits,
     planModeEnabled: settings.planModeEnabled,
+    keybindings,
   });
   const providerTraitsPickerInput = {
     provider: selectedProvider,
@@ -2976,6 +2977,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onPromptChange: setPromptFromTraits,
     planModeEnabled: settings.planModeEnabled,
     isComposerOwned: true,
+    keybindings,
   } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
   const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
   const [inlineRestingControlsHost, setInlineRestingControlsHost] = useState<HTMLDivElement | null>(

@@ -4,6 +4,7 @@ import {
   type ProviderInstanceId,
   type ProviderOptionDescriptor,
   type ProviderOptionSelection,
+  type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
   type ServerProviderModel,
 } from "@t3tools/contracts";
@@ -16,7 +17,7 @@ import {
   isClaudeUltrathinkPrompt,
   normalizeModelSlug,
 } from "@t3tools/shared/model";
-import { memo, useCallback } from "react";
+import { memo, useCallback, useEffect, useRef } from "react";
 import { BrainIcon } from "lucide-react";
 import {
   Menu,
@@ -31,6 +32,7 @@ import { useComposerDraftStore, DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
 import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
+import { Kbd } from "../ui/kbd";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   ComposerControl,
@@ -40,6 +42,13 @@ import {
 } from "./ComposerControl";
 import { useComposerMenuProps } from "./composerEventScope";
 import { useComposerMenuState } from "./useComposerMenuState";
+import { isCommandPaletteOpen } from "../../commandPaletteBus";
+import {
+  effortPickerJumpCommandForIndex,
+  effortPickerJumpIndexFromCommand,
+  resolveShortcutCommand,
+  shortcutLabelForCommand,
+} from "../../keybindings";
 
 type ProviderOptions = ReadonlyArray<ProviderOptionSelection>;
 
@@ -91,6 +100,7 @@ type TraitsPersistence =
     };
 
 const ULTRATHINK_PROMPT_PREFIX = "Ultrathink:\n";
+const EFFORT_JUMP_SHORTCUT_CONTEXT = { effortPickerOpen: true } as const;
 
 function DefaultBadge() {
   return (
@@ -281,6 +291,8 @@ export interface TraitsMenuContentProps {
   planModeEnabled: boolean;
   triggerClassName?: string;
   isComposerOwned?: boolean;
+  /** Enables numbered effort jumps. Menus without keybindings, such as in Settings, have none. */
+  keybindings?: ResolvedKeybindingsConfig | undefined;
 }
 
 export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
@@ -294,6 +306,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   reportedModelSelection,
   allowPromptInjectedEffort = true,
   planModeEnabled,
+  keybindings,
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
   const modelSelection =
@@ -338,6 +351,48 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   const updateDescriptors = (nextDescriptors: ReadonlyArray<ProviderOptionDescriptor>) => {
     updateModelOptions(buildProviderOptionSelectionsFromDescriptors(nextDescriptors));
   };
+
+  // Effort jumps (mod+1..9 by default) pick the primary select options in
+  // menu order, like favorites in the model picker.
+  const effortItemRefs = useRef<Array<HTMLElement | null>>([]);
+  const effortJumpKeybindings =
+    primarySelectDescriptor !== null && !modelIsUnavailable ? keybindings : undefined;
+  useEffect(() => {
+    if (!effortJumpKeybindings) {
+      return;
+    }
+    const onWindowKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || isCommandPaletteOpen()) {
+        return;
+      }
+      const command = resolveShortcutCommand(event, effortJumpKeybindings, {
+        platform: navigator.platform,
+        context: EFFORT_JUMP_SHORTCUT_CONTEXT,
+      });
+      const jumpIndex = effortPickerJumpIndexFromCommand(command ?? "");
+      if (jumpIndex === null) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      // Base UI activates items with click() too. Going through it keeps the
+      // ultrathink handling, skips disabled options, and closes the menu.
+      effortItemRefs.current[jumpIndex]?.click();
+    };
+
+    window.addEventListener("keydown", onWindowKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", onWindowKeyDown, true);
+    };
+  }, [effortJumpKeybindings]);
+  const effortJumpLabel = (optionIndex: number) =>
+    !effortJumpKeybindings || ultrathinkInBodyText
+      ? null
+      : shortcutLabelForCommand(
+          effortJumpKeybindings,
+          effortPickerJumpCommandForIndex(optionIndex),
+          { platform: navigator.platform, context: EFFORT_JUMP_SHORTCUT_CONTEXT },
+        );
 
   const handleSelectChange = (
     descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
@@ -393,19 +448,20 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   return (
     <>
       {selectDescriptors.map((descriptor, index) => {
+        const isPrimary = descriptor.id === primarySelectDescriptor?.id;
         const selectedValue =
-          ultrathinkPromptControlled && descriptor.id === primarySelectDescriptor?.id
+          ultrathinkPromptControlled && isPrimary
             ? "ultrathink"
             : (getDescriptorStringValue(descriptor, modelSelection, reportedModelSelection) ?? "");
 
         return (
-          <div key={descriptor.id}>
+          <div key={descriptor.id} data-effort-picker-content={isPrimary ? "true" : undefined}>
             {index > 0 ? <MenuDivider /> : null}
             <MenuGroup>
               <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">
                 {descriptor.label}
               </div>
-              {ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id ? (
+              {ultrathinkInBodyText && isPrimary ? (
                 <div className="px-2 pb-1.5 text-muted-foreground/80 text-xs">
                   Your prompt contains &quot;ultrathink&quot; in the text. Remove it to change this
                   option.
@@ -415,36 +471,47 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
                 value={selectedValue}
                 onValueChange={(value) => handleSelectChange(descriptor, value)}
               >
-                {descriptor.options.map((option) => (
-                  <MenuRadioItem
-                    key={option.id}
-                    value={option.id}
-                    hideIndicator
-                    // Base UI keeps radio menus open by default. Close on pick so
-                    // the traits menu behaves like the model picker.
-                    closeOnClick
-                    disabled={ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id}
-                  >
-                    <span className="flex w-full min-w-0 flex-col">
-                      <span className="flex w-full min-w-0 items-center justify-between gap-3">
-                        <span className="min-w-0 truncate">
-                          {option.label}
-                          {option.isDefault ? (
-                            <>
-                              {" "}
-                              <DefaultBadge />
-                            </>
-                          ) : null}
+                {descriptor.options.map((option, optionIndex) => {
+                  const jumpLabel = isPrimary ? effortJumpLabel(optionIndex) : null;
+                  return (
+                    <MenuRadioItem
+                      key={option.id}
+                      ref={
+                        isPrimary
+                          ? (element: HTMLElement | null) => {
+                              effortItemRefs.current[optionIndex] = element;
+                            }
+                          : undefined
+                      }
+                      value={option.id}
+                      hideIndicator
+                      // Base UI keeps radio menus open by default. Close on pick so
+                      // the traits menu behaves like the model picker.
+                      closeOnClick
+                      disabled={ultrathinkInBodyText && isPrimary}
+                    >
+                      <span className="flex w-full min-w-0 flex-col">
+                        <span className="flex w-full min-w-0 items-center justify-between gap-3">
+                          <span className="min-w-0 truncate">
+                            {option.label}
+                            {option.isDefault ? (
+                              <>
+                                {" "}
+                                <DefaultBadge />
+                              </>
+                            ) : null}
+                          </span>
+                          {jumpLabel ? <Kbd>{jumpLabel}</Kbd> : null}
                         </span>
+                        {option.description ? (
+                          <span className="max-w-56 text-pretty text-muted-foreground/80 text-xs">
+                            {option.description}
+                          </span>
+                        ) : null}
                       </span>
-                      {option.description ? (
-                        <span className="max-w-56 text-pretty text-muted-foreground/80 text-xs">
-                          {option.description}
-                        </span>
-                      ) : null}
-                    </span>
-                  </MenuRadioItem>
-                ))}
+                    </MenuRadioItem>
+                  );
+                })}
               </MenuRadioGroup>
             </MenuGroup>
           </div>
@@ -579,6 +646,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   planModeEnabled,
   triggerClassName,
   isComposerOwned,
+  keybindings,
   size = "sm",
   hidden = false,
   disabled = false,
@@ -690,6 +758,7 @@ export const TraitsPicker = memo(function TraitsPicker({
           reportedModelSelection={reportedModelSelection}
           allowPromptInjectedEffort={allowPromptInjectedEffort}
           planModeEnabled={planModeEnabled}
+          keybindings={keybindings}
           {...persistence}
         />
       </MenuPopup>
