@@ -17,8 +17,7 @@ import {
   isClaudeUltrathinkPrompt,
   normalizeModelSlug,
 } from "@t3tools/shared/model";
-import { useAtomValue } from "@effect/atom-react";
-import { memo, useCallback, useEffect, useMemo, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo } from "react";
 import { BrainIcon } from "lucide-react";
 import {
   Menu,
@@ -31,7 +30,6 @@ import {
 } from "../ui/menu";
 import { useComposerDraftStore, DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
-import { primaryServerKeybindingsAtom } from "../../state/server";
 import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
 import { Kbd } from "../ui/kbd";
@@ -43,7 +41,6 @@ import {
   type ComposerControlSize,
 } from "./ComposerControl";
 import { useComposerMenuProps } from "./composerEventScope";
-import { resolveComposerOptionSelections } from "./composerProviderState";
 import { useComposerMenuState } from "./useComposerMenuState";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import {
@@ -293,8 +290,8 @@ export interface TraitsMenuContentProps {
   planModeEnabled: boolean;
   triggerClassName?: string;
   isComposerOwned?: boolean;
-  /** Overrides the server keybindings for effort jumps, like the model picker's. */
-  keybindings?: ResolvedKeybindingsConfig | undefined;
+  /** Effort jump bindings. Callers pass the server's, `primaryServerKeybindingsAtom`. */
+  keybindings: ResolvedKeybindingsConfig;
   /** The composer's terminal state, for effort jump `when` conditions. */
   terminalOpen?: boolean | undefined;
   /** Closes the menu holding this content after an effort jump. Clicks close through Base UI. */
@@ -312,7 +309,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   reportedModelSelection,
   allowPromptInjectedEffort = true,
   planModeEnabled,
-  keybindings: providedKeybindings,
+  keybindings,
   terminalOpen = false,
   onRequestClose,
   ...persistence
@@ -384,8 +381,6 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
 
   // Effort jumps (mod+1..9 by default) pick the primary select options in
   // menu order, like favorites in the model picker.
-  const serverKeybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const keybindings = providedKeybindings ?? serverKeybindings;
   const effortJumpsEnabled = primarySelectDescriptor !== null && !modelIsUnavailable;
   // Matches the model picker's jump context: the open menu holds focus, so
   // the terminal does not. Hints and key presses both resolve against it.
@@ -782,104 +777,3 @@ export const TraitsPicker = memo(function TraitsPicker({
     </Menu>
   );
 });
-
-type TraitsRenderInput = {
-  provider: ProviderDriverKind;
-  instanceId?: ProviderInstanceId;
-  threadRef?: ScopedThreadRef;
-  draftId?: DraftId;
-  model: string;
-  models: ReadonlyArray<ServerProviderModel>;
-  modelOptions: ReadonlyArray<ProviderOptionSelection> | undefined;
-  reportedModelSelection?: ModelSelection | null | undefined;
-  prompt: string;
-  onPromptChange: (prompt: string) => void;
-  planModeEnabled: boolean;
-  size?: ComposerControlSize;
-  hidden?: boolean;
-  triggerClassName?: string;
-  isComposerOwned?: boolean;
-  keybindings?: ResolvedKeybindingsConfig;
-  terminalOpen?: boolean;
-};
-
-function renderTraitsControl(
-  Component: typeof TraitsMenuContent | typeof TraitsPicker,
-  input: TraitsRenderInput,
-  onRequestClose?: () => void,
-): ReactNode {
-  const {
-    provider,
-    instanceId,
-    threadRef,
-    draftId,
-    model,
-    models,
-    modelOptions,
-    reportedModelSelection,
-    prompt,
-    onPromptChange,
-    planModeEnabled,
-    size,
-    hidden,
-    triggerClassName,
-    isComposerOwned,
-    keybindings,
-    terminalOpen,
-  } = input;
-  const hasTarget = threadRef !== undefined || draftId !== undefined;
-  const { selections: resolvedModelOptions } = resolveComposerOptionSelections(
-    models,
-    model,
-    provider,
-    modelOptions,
-    planModeEnabled,
-  );
-  if (
-    !hasTarget ||
-    !shouldRenderTraitsControls({
-      provider,
-      models,
-      model,
-      modelOptions: resolvedModelOptions,
-      prompt,
-      planModeEnabled,
-    })
-  ) {
-    return null;
-  }
-  return (
-    <Component
-      provider={provider}
-      {...(instanceId ? { instanceId } : {})}
-      models={models}
-      {...(threadRef ? { threadRef } : {})}
-      {...(draftId ? { draftId } : {})}
-      model={model}
-      modelOptions={resolvedModelOptions}
-      reportedModelSelection={reportedModelSelection}
-      prompt={prompt}
-      onPromptChange={onPromptChange}
-      planModeEnabled={planModeEnabled}
-      {...(size !== undefined ? { size } : {})}
-      {...(hidden !== undefined ? { hidden } : {})}
-      {...(triggerClassName !== undefined ? { triggerClassName } : {})}
-      {...(isComposerOwned ? { isComposerOwned } : {})}
-      keybindings={keybindings}
-      terminalOpen={terminalOpen}
-      {...(onRequestClose ? { onRequestClose } : {})}
-    />
-  );
-}
-
-/** Traits for a menu the caller owns, such as the compact composer's overflow menu. */
-export function renderProviderTraitsMenuContent(
-  input: TraitsRenderInput,
-  onRequestClose: () => void,
-): ReactNode {
-  return renderTraitsControl(TraitsMenuContent, input, onRequestClose);
-}
-
-export function renderProviderTraitsPicker(input: TraitsRenderInput): ReactNode {
-  return renderTraitsControl(TraitsPicker, input);
-}

@@ -290,8 +290,12 @@ import {
   searchSlashCommandItems,
   slashCommandItemsForPromptPosition,
 } from "./composerSlashCommandSearch";
-import { getComposerPromptInjectionState, getComposerProviderState } from "./composerProviderState";
-import { renderProviderTraitsMenuContent, renderProviderTraitsPicker } from "./TraitsPicker";
+import {
+  getComposerPromptInjectionState,
+  getComposerProviderState,
+  renderProviderTraitsMenuContent,
+  renderProviderTraitsPicker,
+} from "./composerProviderState";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import {
   providerSupportsManualCompaction,

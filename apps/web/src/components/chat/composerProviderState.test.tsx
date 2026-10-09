@@ -10,9 +10,10 @@ import { getProviderModelCapabilities } from "../../providerModels";
 import {
   getComposerPromptInjectionState,
   getComposerProviderState,
+  renderProviderTraitsMenuContent,
+  renderProviderTraitsPicker,
   withImplicitFastModeDefault,
 } from "./composerProviderState";
-import { renderProviderTraitsMenuContent, renderProviderTraitsPicker } from "./TraitsPicker";
 
 // Everything in composerProviderState is now data-driven by the model's
 // optionDescriptors, so these tests use a single synthetic provider/model and
@@ -483,6 +484,7 @@ describe("provider traits render guards", () => {
       prompt: "",
       onPromptChange: () => {},
       planModeEnabled: true,
+      keybindings: [],
     };
 
     expect(renderProviderTraitsPicker(args)).toBeNull();

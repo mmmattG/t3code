@@ -17,19 +17,6 @@ import { isEffortPickerOpen } from "../../effortPickerVisibility";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { TraitsMenuContent, TraitsPicker } from "./TraitsPicker";
 
-// The server's keybindings, used by menus that pass none.
-vi.mock("../../state/server", async () => {
-  const { Atom } = await import("effect/reactivity");
-  const { compileResolvedKeybindingsConfig } = await import("@t3tools/shared/keybindings");
-  return {
-    primaryServerKeybindingsAtom: Atom.make(
-      compileResolvedKeybindingsConfig([
-        { key: "mod+4", command: "effortPicker.jump.2", when: "effortPickerOpen" },
-      ]),
-    ),
-  };
-});
-
 const KEYBINDINGS = compileResolvedKeybindingsConfig([
   { key: "mod+1", command: "effortPicker.jump.1", when: "effortPickerOpen" },
   { key: "mod+2", command: "effortPicker.jump.2", when: "effortPickerOpen" },
@@ -98,13 +85,12 @@ describe("traits menu effort jumps", () => {
     {
       owner = "traitsPicker",
       prompt = "",
-      // `null` passes none, like Settings, so the menu falls back to the server's.
       keybindings = KEYBINDINGS,
       terminalOpen = false,
     }: {
       owner?: "traitsPicker" | "compactMenu";
       prompt?: string;
-      keybindings?: ResolvedKeybindingsConfig | null;
+      keybindings?: ResolvedKeybindingsConfig;
       terminalOpen?: boolean;
     } = {},
   ) {
@@ -128,7 +114,7 @@ describe("traits menu effort jumps", () => {
       onModelOptionsChange,
       planModeEnabled: false,
       terminalOpen,
-      ...(keybindings ? { keybindings } : {}),
+      keybindings,
     };
     await act(async () =>
       root.render(
@@ -227,28 +213,6 @@ describe("traits menu effort jumps", () => {
     expect(onModelOptionsChange).not.toHaveBeenCalled();
     expect(onPromptChange).not.toHaveBeenCalled();
     expect(isEffortPickerOpen()).toBe(true);
-  });
-
-  it.each([
-    { source: "server", keybindings: null, liveKey: "4", deadKey: "2", hints: ["Ctrl+4"] },
-    {
-      source: "passed",
-      keybindings: KEYBINDINGS,
-      liveKey: "2",
-      deadKey: "4",
-      hints: ["Ctrl+1", "Ctrl+2"],
-    },
-  ])("jumps with the $source keybindings", async ({ keybindings, liveKey, deadKey, hints }) => {
-    const { onModelOptionsChange } = await renderMenu("codex", [REASONING], { keybindings });
-    expect(hintLabels()).toEqual(hints);
-
-    expect((await press(deadKey)).defaultPrevented).toBe(false);
-    expect(onModelOptionsChange).not.toHaveBeenCalled();
-    await press(liveKey);
-    expect(onModelOptionsChange).toHaveBeenCalledExactlyOnceWith([
-      { id: "reasoningEffort", value: "high" },
-    ]);
-    expect(isEffortPickerOpen()).toBe(false);
   });
 
   it.each([
