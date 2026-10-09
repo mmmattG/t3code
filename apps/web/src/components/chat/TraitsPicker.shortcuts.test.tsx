@@ -1,22 +1,37 @@
 // @vitest-environment jsdom
 
-import { act, useState } from "react";
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   ProviderDriverKind,
   type ProviderOptionDescriptor,
   type ProviderOptionSelection,
+  type ResolvedKeybindingsConfig,
   type ServerProviderModel,
 } from "@t3tools/contracts";
 import { compileResolvedKeybindingsConfig } from "@t3tools/shared/keybindings";
 import { createModelCapabilities } from "@t3tools/shared/model";
 
 import { isEffortPickerOpen } from "../../effortPickerVisibility";
-import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
-import { TraitsMenuContent } from "./TraitsPicker";
+import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
+import { TraitsMenuContent, TraitsPicker } from "./TraitsPicker";
+
+// The server's keybindings, used by menus that pass none.
+vi.mock("../../state/server", async () => {
+  const { Atom } = await import("effect/reactivity");
+  const { compileResolvedKeybindingsConfig } = await import("@t3tools/shared/keybindings");
+  return {
+    primaryServerKeybindingsAtom: Atom.make(
+      compileResolvedKeybindingsConfig([
+        { key: "mod+4", command: "effortPicker.jump.2", when: "effortPickerOpen" },
+      ]),
+    ),
+  };
+});
 
 const KEYBINDINGS = compileResolvedKeybindingsConfig([
+  { key: "mod+1", command: "effortPicker.jump.1", when: "effortPickerOpen" },
   { key: "mod+2", command: "effortPicker.jump.2", when: "effortPickerOpen" },
   { key: "mod+3", command: "effortPicker.jump.3", when: "effortPickerOpen" },
 ]);
@@ -76,10 +91,22 @@ describe("traits menu effort jumps", () => {
     vi.unstubAllGlobals();
   });
 
+  /** Renders the traits through a real menu owner and opens its menu. */
   async function renderMenu(
     provider: string,
     descriptors: ReadonlyArray<ProviderOptionDescriptor>,
-    { prompt = "", keybindings = KEYBINDINGS, terminalOpen = false } = {},
+    {
+      owner = "traitsPicker",
+      prompt = "",
+      // `null` passes none, like Settings, so the menu falls back to the server's.
+      keybindings = KEYBINDINGS,
+      terminalOpen = false,
+    }: {
+      owner?: "traitsPicker" | "compactMenu";
+      prompt?: string;
+      keybindings?: ResolvedKeybindingsConfig | null;
+      terminalOpen?: boolean;
+    } = {},
   ) {
     const onModelOptionsChange =
       vi.fn<(options: ReadonlyArray<ProviderOptionSelection> | undefined) => void>();
@@ -92,28 +119,38 @@ describe("traits menu effort jumps", () => {
         capabilities: createModelCapabilities({ optionDescriptors: descriptors }),
       },
     ];
-    function TestMenu() {
-      const [open, setOpen] = useState(true);
-      return (
-        <Menu open={open} onOpenChange={setOpen}>
-          <MenuTrigger>Traits</MenuTrigger>
-          <MenuPopup>
-            <TraitsMenuContent
-              provider={ProviderDriverKind.make(provider)}
-              models={models}
-              model="test-model"
-              prompt={prompt}
-              onPromptChange={onPromptChange}
-              onModelOptionsChange={onModelOptionsChange}
-              planModeEnabled={false}
-              keybindings={keybindings}
-              terminalOpen={terminalOpen}
-            />
-          </MenuPopup>
-        </Menu>
-      );
-    }
-    await act(async () => root.render(<TestMenu />));
+    const traitsProps = {
+      provider: ProviderDriverKind.make(provider),
+      models,
+      model: "test-model",
+      prompt,
+      onPromptChange,
+      onModelOptionsChange,
+      planModeEnabled: false,
+      terminalOpen,
+      ...(keybindings ? { keybindings } : {}),
+    };
+    await act(async () =>
+      root.render(
+        owner === "traitsPicker" ? (
+          <TraitsPicker {...traitsProps} />
+        ) : (
+          <CompactComposerControlsMenu
+            interactionMode="default"
+            runtimeMode="full-access"
+            runtimeModeOptions={[]}
+            showInteractionModeToggle={false}
+            onToggleInteractionMode={() => {}}
+            onRuntimeModeChange={() => {}}
+            renderTraitsMenuContent={(onRequestClose) => (
+              <TraitsMenuContent {...traitsProps} onRequestClose={onRequestClose} />
+            )}
+          />
+        ),
+      ),
+    );
+    await act(async () => container.querySelector("button")?.click());
+    expect(isEffortPickerOpen()).toBe(true);
     return { onModelOptionsChange, onPromptChange };
   }
 
@@ -128,18 +165,36 @@ describe("traits menu effort jumps", () => {
     return event;
   }
 
-  it("numbers only the first group and picks from it, closing the menu", async () => {
-    const { onModelOptionsChange } = await renderMenu("codex", [REASONING, SERVICE_TIER]);
-    // Only mod+2 is bound for a two-option group, so a second hint would be Service tier's.
-    expect(document.querySelectorAll("kbd")).toHaveLength(1);
+  function hintLabels() {
+    return Array.from(document.querySelectorAll("kbd"), (kbd) => kbd.textContent);
+  }
 
-    expect((await press("2")).defaultPrevented).toBe(true);
+  it.each(["traitsPicker", "compactMenu"] as const)(
+    "numbers only the first group and picks from it, closing the %s",
+    async (owner) => {
+      const { onModelOptionsChange } = await renderMenu("codex", [REASONING, SERVICE_TIER], {
+        owner,
+      });
+      // mod+3 is bound too, so a third hint would be Service tier's.
+      expect(hintLabels()).toEqual(["Ctrl+1", "Ctrl+2"]);
+
+      expect((await press("2")).defaultPrevented).toBe(true);
+      expect(onModelOptionsChange).toHaveBeenCalledExactlyOnceWith([
+        { id: "reasoningEffort", value: "high" },
+        { id: "serviceTier", value: "default" },
+      ]);
+      expect(isEffortPickerOpen()).toBe(false);
+      expect((await press("2")).defaultPrevented).toBe(false);
+    },
+  );
+
+  it("re-picks the current level like a click, closing the menu", async () => {
+    const { onModelOptionsChange } = await renderMenu("codex", [REASONING]);
+    await press("1");
     expect(onModelOptionsChange).toHaveBeenCalledExactlyOnceWith([
-      { id: "reasoningEffort", value: "high" },
-      { id: "serviceTier", value: "default" },
+      { id: "reasoningEffort", value: "low" },
     ]);
     expect(isEffortPickerOpen()).toBe(false);
-    expect((await press("2")).defaultPrevented).toBe(false);
   });
 
   it("ignores numbers past the last option", async () => {
@@ -149,7 +204,7 @@ describe("traits menu effort jumps", () => {
     expect(isEffortPickerOpen()).toBe(true);
   });
 
-  it("adds Claude's ultrathink prefix through the normal menu behavior", async () => {
+  it("adds Claude's ultrathink prefix like picking it from the menu", async () => {
     const { onModelOptionsChange, onPromptChange } = await renderMenu("claudeAgent", [
       CLAUDE_EFFORT,
     ]);
@@ -165,11 +220,35 @@ describe("traits menu effort jumps", () => {
       [CLAUDE_EFFORT],
       { prompt: "Please ultrathink about this" },
     );
-    expect(document.querySelector("kbd")).toBeNull();
+    expect(hintLabels()).toEqual([]);
+    // High is a normal option; Ultrathink is the one that edits the prompt.
     await press("2");
+    await press("3");
     expect(onModelOptionsChange).not.toHaveBeenCalled();
     expect(onPromptChange).not.toHaveBeenCalled();
     expect(isEffortPickerOpen()).toBe(true);
+  });
+
+  it.each([
+    { source: "server", keybindings: null, liveKey: "4", deadKey: "2", hints: ["Ctrl+4"] },
+    {
+      source: "passed",
+      keybindings: KEYBINDINGS,
+      liveKey: "2",
+      deadKey: "4",
+      hints: ["Ctrl+1", "Ctrl+2"],
+    },
+  ])("jumps with the $source keybindings", async ({ keybindings, liveKey, deadKey, hints }) => {
+    const { onModelOptionsChange } = await renderMenu("codex", [REASONING], { keybindings });
+    expect(hintLabels()).toEqual(hints);
+
+    expect((await press(deadKey)).defaultPrevented).toBe(false);
+    expect(onModelOptionsChange).not.toHaveBeenCalled();
+    await press(liveKey);
+    expect(onModelOptionsChange).toHaveBeenCalledExactlyOnceWith([
+      { id: "reasoningEffort", value: "high" },
+    ]);
+    expect(isEffortPickerOpen()).toBe(false);
   });
 
   it.each([
@@ -182,9 +261,7 @@ describe("traits menu effort jumps", () => {
         keybindings: TERMINAL_KEYBINDINGS,
         terminalOpen,
       });
-      expect(Array.from(document.querySelectorAll("kbd"), (kbd) => kbd.textContent)).toEqual([
-        `Ctrl+${liveKey}`,
-      ]);
+      expect(hintLabels()).toEqual([`Ctrl+${liveKey}`]);
 
       expect((await press(deadKey)).defaultPrevented).toBe(false);
       expect(onModelOptionsChange).not.toHaveBeenCalled();

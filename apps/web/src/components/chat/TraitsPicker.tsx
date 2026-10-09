@@ -17,7 +17,8 @@ import {
   isClaudeUltrathinkPrompt,
   normalizeModelSlug,
 } from "@t3tools/shared/model";
-import { memo, useCallback, useEffect, useMemo, useRef } from "react";
+import { useAtomValue } from "@effect/atom-react";
+import { memo, useCallback, useEffect, useMemo, type ReactNode } from "react";
 import { BrainIcon } from "lucide-react";
 import {
   Menu,
@@ -30,6 +31,7 @@ import {
 } from "../ui/menu";
 import { useComposerDraftStore, DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
+import { primaryServerKeybindingsAtom } from "../../state/server";
 import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
 import { Kbd } from "../ui/kbd";
@@ -41,6 +43,7 @@ import {
   type ComposerControlSize,
 } from "./ComposerControl";
 import { useComposerMenuProps } from "./composerEventScope";
+import { resolveComposerOptionSelections } from "./composerProviderState";
 import { useComposerMenuState } from "./useComposerMenuState";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import {
@@ -290,10 +293,12 @@ export interface TraitsMenuContentProps {
   planModeEnabled: boolean;
   triggerClassName?: string;
   isComposerOwned?: boolean;
-  /** Enables numbered effort jumps. Menus without keybindings, such as in Settings, have none. */
+  /** Overrides the server keybindings for effort jumps, like the model picker's. */
   keybindings?: ResolvedKeybindingsConfig | undefined;
   /** The composer's terminal state, for effort jump `when` conditions. */
   terminalOpen?: boolean | undefined;
+  /** Closes the menu holding this content after an effort jump. Clicks close through Base UI. */
+  onRequestClose?: () => void;
 }
 
 export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
@@ -307,8 +312,9 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   reportedModelSelection,
   allowPromptInjectedEffort = true,
   planModeEnabled,
-  keybindings,
+  keybindings: providedKeybindings,
   terminalOpen = false,
+  onRequestClose,
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
   const modelSelection =
@@ -354,26 +360,57 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     updateModelOptions(buildProviderOptionSelectionsFromDescriptors(nextDescriptors));
   };
 
+  const handleSelectChange = (
+    descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
+    value: string,
+  ) => {
+    if (!value) return;
+    // "ultrathink" in the prompt text pins the primary option, Ultrathink included.
+    if (ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id) return;
+    if (descriptor.promptInjectedValues?.includes(value)) {
+      const nextPrompt =
+        prompt.trim().length === 0
+          ? ULTRATHINK_PROMPT_PREFIX
+          : applyClaudePromptEffortPrefix(prompt, "ultrathink");
+      onPromptChange(nextPrompt);
+      return;
+    }
+    if (ultrathinkPromptControlled && descriptor.id === primarySelectDescriptor?.id) {
+      const stripped = prompt.replace(/^Ultrathink:\s*/i, "");
+      onPromptChange(stripped);
+    }
+    updateDescriptors(replaceDescriptorCurrentValue(descriptors, descriptor.id, value));
+  };
+
   // Effort jumps (mod+1..9 by default) pick the primary select options in
   // menu order, like favorites in the model picker.
-  const effortItemRefs = useRef<Array<HTMLElement | null>>([]);
-  const effortJumpKeybindings =
-    primarySelectDescriptor !== null && !modelIsUnavailable ? keybindings : undefined;
+  const serverKeybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const keybindings = providedKeybindings ?? serverKeybindings;
+  const effortJumpsEnabled = primarySelectDescriptor !== null && !modelIsUnavailable;
   // Matches the model picker's jump context: the open menu holds focus, so
   // the terminal does not. Hints and key presses both resolve against it.
   const effortJumpShortcutContext = useMemo(
     () => ({ terminalFocus: false, terminalOpen, effortPickerOpen: true }),
     [terminalOpen],
   );
+  // Picks like a click on the option, then closes the menu as the click would.
+  // Out-of-range numbers and the prompt-text lock leave the menu open, like a
+  // disabled option.
+  const selectEffortJump = (optionIndex: number) => {
+    const option = primarySelectDescriptor?.options[optionIndex];
+    if (!primarySelectDescriptor || !option || ultrathinkInBodyText) return;
+    handleSelectChange(primarySelectDescriptor, option.id);
+    onRequestClose?.();
+  };
   useEffect(() => {
-    if (!effortJumpKeybindings) {
+    if (!effortJumpsEnabled) {
       return;
     }
     const onWindowKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat || isCommandPaletteOpen()) {
         return;
       }
-      const command = resolveShortcutCommand(event, effortJumpKeybindings, {
+      const command = resolveShortcutCommand(event, keybindings, {
         platform: navigator.platform,
         context: effortJumpShortcutContext,
       });
@@ -383,45 +420,21 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
       }
       event.preventDefault();
       event.stopPropagation();
-      // Base UI activates items with click() too. Going through it keeps the
-      // ultrathink handling, skips disabled options, and closes the menu.
-      effortItemRefs.current[jumpIndex]?.click();
+      selectEffortJump(jumpIndex);
     };
 
     window.addEventListener("keydown", onWindowKeyDown, true);
     return () => {
       window.removeEventListener("keydown", onWindowKeyDown, true);
     };
-  }, [effortJumpKeybindings, effortJumpShortcutContext]);
+  }, [effortJumpShortcutContext, effortJumpsEnabled, keybindings, selectEffortJump]);
   const effortJumpLabel = (optionIndex: number) =>
-    !effortJumpKeybindings || ultrathinkInBodyText
+    !effortJumpsEnabled || ultrathinkInBodyText
       ? null
-      : shortcutLabelForCommand(
-          effortJumpKeybindings,
-          effortPickerJumpCommandForIndex(optionIndex),
-          { platform: navigator.platform, context: effortJumpShortcutContext },
-        );
-
-  const handleSelectChange = (
-    descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
-    value: string,
-  ) => {
-    if (!value) return;
-    if (descriptor.promptInjectedValues?.includes(value)) {
-      const nextPrompt =
-        prompt.trim().length === 0
-          ? ULTRATHINK_PROMPT_PREFIX
-          : applyClaudePromptEffortPrefix(prompt, "ultrathink");
-      onPromptChange(nextPrompt);
-      return;
-    }
-    if (ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id) return;
-    if (ultrathinkPromptControlled && descriptor.id === primarySelectDescriptor?.id) {
-      const stripped = prompt.replace(/^Ultrathink:\s*/i, "");
-      onPromptChange(stripped);
-    }
-    updateDescriptors(replaceDescriptorCurrentValue(descriptors, descriptor.id, value));
-  };
+      : shortcutLabelForCommand(keybindings, effortPickerJumpCommandForIndex(optionIndex), {
+          platform: navigator.platform,
+          context: effortJumpShortcutContext,
+        });
 
   if (!hasAnyControls) {
     return null;
@@ -484,13 +497,6 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
                   return (
                     <MenuRadioItem
                       key={option.id}
-                      ref={
-                        isPrimary
-                          ? (element: HTMLElement | null) => {
-                              effortItemRefs.current[optionIndex] = element;
-                            }
-                          : undefined
-                      }
                       value={option.id}
                       hideIndicator
                       // Base UI keeps radio menus open by default. Close on pick so
@@ -660,7 +666,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   hidden = false,
   disabled = false,
   ...persistence
-}: TraitsMenuContentProps &
+}: Omit<TraitsMenuContentProps, "onRequestClose"> &
   TraitsPersistence & {
     size?: ComposerControlSize;
     hidden?: boolean;
@@ -769,9 +775,111 @@ export const TraitsPicker = memo(function TraitsPicker({
           planModeEnabled={planModeEnabled}
           keybindings={keybindings}
           terminalOpen={terminalOpen}
+          onRequestClose={() => setIsMenuOpen(false)}
           {...persistence}
         />
       </MenuPopup>
     </Menu>
   );
 });
+
+type TraitsRenderInput = {
+  provider: ProviderDriverKind;
+  instanceId?: ProviderInstanceId;
+  threadRef?: ScopedThreadRef;
+  draftId?: DraftId;
+  model: string;
+  models: ReadonlyArray<ServerProviderModel>;
+  modelOptions: ReadonlyArray<ProviderOptionSelection> | undefined;
+  reportedModelSelection?: ModelSelection | null | undefined;
+  prompt: string;
+  onPromptChange: (prompt: string) => void;
+  planModeEnabled: boolean;
+  size?: ComposerControlSize;
+  hidden?: boolean;
+  triggerClassName?: string;
+  isComposerOwned?: boolean;
+  keybindings?: ResolvedKeybindingsConfig;
+  terminalOpen?: boolean;
+};
+
+function renderTraitsControl(
+  Component: typeof TraitsMenuContent | typeof TraitsPicker,
+  input: TraitsRenderInput,
+  onRequestClose?: () => void,
+): ReactNode {
+  const {
+    provider,
+    instanceId,
+    threadRef,
+    draftId,
+    model,
+    models,
+    modelOptions,
+    reportedModelSelection,
+    prompt,
+    onPromptChange,
+    planModeEnabled,
+    size,
+    hidden,
+    triggerClassName,
+    isComposerOwned,
+    keybindings,
+    terminalOpen,
+  } = input;
+  const hasTarget = threadRef !== undefined || draftId !== undefined;
+  const { selections: resolvedModelOptions } = resolveComposerOptionSelections(
+    models,
+    model,
+    provider,
+    modelOptions,
+    planModeEnabled,
+  );
+  if (
+    !hasTarget ||
+    !shouldRenderTraitsControls({
+      provider,
+      models,
+      model,
+      modelOptions: resolvedModelOptions,
+      prompt,
+      planModeEnabled,
+    })
+  ) {
+    return null;
+  }
+  return (
+    <Component
+      provider={provider}
+      {...(instanceId ? { instanceId } : {})}
+      models={models}
+      {...(threadRef ? { threadRef } : {})}
+      {...(draftId ? { draftId } : {})}
+      model={model}
+      modelOptions={resolvedModelOptions}
+      reportedModelSelection={reportedModelSelection}
+      prompt={prompt}
+      onPromptChange={onPromptChange}
+      planModeEnabled={planModeEnabled}
+      {...(size !== undefined ? { size } : {})}
+      {...(hidden !== undefined ? { hidden } : {})}
+      {...(triggerClassName !== undefined ? { triggerClassName } : {})}
+      {...(isComposerOwned ? { isComposerOwned } : {})}
+      keybindings={keybindings}
+      terminalOpen={terminalOpen}
+      {...(onRequestClose ? { onRequestClose } : {})}
+    />
+  );
+}
+
+/** Traits for a menu the caller owns, such as the compact composer's overflow menu. */
+export function renderProviderTraitsMenuContent(
+  input: TraitsRenderInput,
+  onRequestClose: () => void,
+): ReactNode {
+  return renderTraitsControl(TraitsMenuContent, input, onRequestClose);
+}
+
+export function renderProviderTraitsPicker(input: TraitsRenderInput): ReactNode {
+  return renderTraitsControl(TraitsPicker, input);
+}
